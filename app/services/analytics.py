@@ -11,7 +11,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 
 from app.services.parsing import normalize_name
-from app.services.periods import bucket_label, bucket_start
+from app.services.periods import bucket_label, bucket_start, bucket_starts
 
 ZERO = Decimal("0")
 _PCT = Decimal("0.1")
@@ -326,40 +326,33 @@ def series_by_period(rows: Iterable[tuple[date, str, Decimal]], granularity: str
     }
 
 
-def month_starts(start: date, end: date) -> list[date]:
-    """Первые числа всех месяцев от start до end включительно."""
-    current, result = start.replace(day=1), []
-    while current <= end:
-        result.append(current)
-        current = date(current.year + current.month // 12, current.month % 12 + 1, 1)
-    return result
-
-
 def fact_budget_series(
     fact_rows: Iterable[tuple[date, str, Decimal]],
     budget_rows: Iterable[tuple[date, str, Decimal]] | None,
     start: date,
     end: date,
+    granularity: str = "month",
 ) -> dict:
-    """Данные единственной диаграммы: факт по месяцам с разбивкой по категориям и линия бюджета.
+    """Данные диаграммы динамики: факт по шагам с разбивкой по категориям и линия бюджета.
 
     fact_rows: (дата, категория, сумма). budget_rows: (дата, детализация, сумма) или None,
-    если бюджета нет. Квартальная строка бюджета делится поровну на три месяца квартала.
-    В ось попадают все месяцы периода, даже без данных.
+    если бюджета нет. Шаг — день, месяц, квартал или год. В ось попадают все шаги периода,
+    даже без данных. Квартальная строка бюджета сначала делится поровну на три месяца.
+    По дням бюджет не показывается: он задаётся не детальнее месяца.
     """
-    starts = month_starts(start, end)
-    index = {month: i for i, month in enumerate(starts)}
+    starts = bucket_starts(start, end, granularity)
+    index = {bucket: i for i, bucket in enumerate(starts)}
     by_category: dict[str, list[Decimal]] = {}
     for day, category, amount in fact_rows:
-        position = index.get(bucket_start(day, "month"))
-        if position is not None:
+        position = index.get(bucket_start(day, granularity))
+        if position is not None and start <= day <= end:
             by_category.setdefault(category, [ZERO] * len(starts))[position] += Decimal(amount)
     totals = [
         sum((amounts[i] for amounts in by_category.values()), ZERO) for i in range(len(starts))
     ]
 
     budget = None
-    if budget_rows is not None:
+    if budget_rows is not None and granularity != "day":
         budget = [ZERO] * len(starts)
         for day, grain, amount in budget_rows:
             months = 3 if grain == "quarter" else 1
@@ -367,13 +360,15 @@ def fact_budget_series(
             for offset in range(months):
                 shifted = first.month - 1 + offset
                 month = date(first.year + shifted // 12, shifted % 12 + 1, 1)
-                if month in index:
-                    budget[index[month]] += Decimal(amount) / months
+                position = index.get(bucket_start(month, granularity))
+                if position is not None and start <= month <= end:
+                    budget[position] += Decimal(amount) / months
 
     categories = sorted(by_category, key=lambda c: (-sum(by_category[c], ZERO), c))
     return {
-        "periods": [bucket_label(month, "month") for month in starts],
-        "starts": [month.isoformat() for month in starts],
+        "granularity": granularity,
+        "periods": [bucket_label(bucket, granularity) for bucket in starts],
+        "starts": [bucket.isoformat() for bucket in starts],
         "totals": [float(total) for total in totals],
         "series": [
             {
@@ -388,3 +383,27 @@ def fact_budget_series(
         ],
         "budget": None if budget is None else [round(float(b), 2) for b in budget],
     }
+
+
+def compare_halves(series: dict) -> dict | None:
+    """Сравнивает первую и вторую половины ряда динамики по категориям.
+
+    series — результат fact_budget_series(). При нечётном числе шагов средний шаг
+    не учитывается, чтобы половины были равной длины. None — если шагов меньше двух
+    или данных нет.
+    """
+    count = len(series["periods"])
+    half = count // 2
+    if half == 0 or not series["series"]:
+        return None
+    first = [(s["category"], Decimal(str(sum(s["amounts"][:half])))) for s in series["series"]]
+    second = [
+        (s["category"], Decimal(str(sum(s["amounts"][count - half :])))) for s in series["series"]
+    ]
+    result = compare_periods(first, second).to_dict()
+
+    def label(start: int, stop: int) -> str:
+        names = series["periods"][start:stop]
+        return names[0] if len(names) == 1 else f"{names[0]} — {names[-1]}"
+
+    return {**result, "label_p1": label(0, half), "label_p2": label(count - half, count)}

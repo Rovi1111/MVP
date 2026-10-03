@@ -80,6 +80,10 @@ def fact_budget_figure(data: dict, title: str, colors: dict[str, str] | None = N
             hovertemplate="Бюджет<br>%{x}<br>%{y:,.2f} ₽<extra></extra>",
         )
     fig.update_xaxes(type="category")
+    if data.get("granularity", "month") == "month":
+        # Короткие подписи оси («янв 2025»), чтобы 24 месяца читались; в подсказке — полные
+        short = [f"{name[:3]} {year}" for name, year in (p.rsplit(" ", 1) for p in data["periods"])]
+        fig.update_xaxes(tickmode="array", tickvals=data["periods"], ticktext=short)
     fig.update_yaxes(gridcolor="#e6e9ee", tickformat=",.0f", rangemode="tozero")
     return _layout(fig, title, barmode="relative")
 

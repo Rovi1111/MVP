@@ -16,9 +16,12 @@ from app.services.periods import (
     PeriodRange,
     grain_end,
     parse_range,
+    whole_buckets,
     whole_months,
 )
 from app.services.settings import get_org_settings
+
+MAX_DAY_BUCKETS = 400
 
 
 def parse_period_arg(text: str | None, title: str) -> PeriodRange:
@@ -200,19 +203,27 @@ def run_fact_budget(
     user: User,
     period: str,
     *,
+    granularity: str = "month",
     cost_center_id: int | None = None,
     budget_upload_id: int | None = None,
     categories: list[str] | None = None,
     amount_min: Decimal | None = None,
     amount_max: Decimal | None = None,
 ) -> dict:
-    """Данные диаграммы «факт и бюджет»: факт по месяцам и категориям, линия бюджета.
+    """Динамика расходов: факт по шагам (день/месяц/квартал/год) и линия бюджета.
 
-    Период расширяется до целых месяцев. Отбор по категориям и диапазону сумм
-    (сумма категории за весь период) применяется и к факту, и к бюджету.
+    Для шага крупнее дня период расширяется до целых шагов. Отбор по категориям и
+    диапазону сумм (сумма категории за весь период) применяется и к факту, и к бюджету.
     Если бюджет не загружен, линии нет, а столбцы факта остаются.
     """
-    selected = whole_months(parse_period_arg(period, "Период"))
+    if granularity not in GRANULARITIES:
+        raise InvalidDataError(f"Шаг диаграммы: одно из {', '.join(GRANULARITIES)}")
+    selected = whole_buckets(parse_period_arg(period, "Период"), granularity)
+    if granularity == "day" and (selected.end - selected.start).days >= MAX_DAY_BUCKETS:
+        raise InvalidDataError(
+            f"По дням можно показать не больше {MAX_DAY_BUCKETS} дней — "
+            "сократите период или выберите шаг «Месяцы»"
+        )
     _cost_center(db, user, cost_center_id)
     fact = ExpenseRepository(db, user.org_id).rows(selected.start, selected.end, cost_center_id)
     try:
@@ -228,6 +239,7 @@ def run_fact_budget(
     )
     if categories or amount_min is not None or amount_max is not None:
         totals = analytics.sum_by_category((r.category, r.amount) for r in fact)
+        totals |= {r.category: totals.get(r.category, Decimal("0")) for r in budget}
         keep = analytics.filter_totals(totals, categories, amount_min, amount_max).keys()
         fact = [r for r in fact if r.category in keep]
         budget = [r for r in budget if r.category in keep]
@@ -236,10 +248,12 @@ def run_fact_budget(
         ((r.date, r.grain, r.amount) for r in budget) if version else None,
         selected.start,
         selected.end,
+        granularity,
     )
     return {
         "period": _period_dict(selected),
         "budget_version": version.version if version else None,
+        "categories": sorted(categories) if categories else [],
         **data,
     }
 

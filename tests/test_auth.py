@@ -96,7 +96,7 @@ def test_web_login_flow(client_for):
     )
     assert ok.status_code == 303 and ok.headers["location"] == "/web/dashboard"
     home = client.get("/web/dashboard")
-    assert home.status_code == 200 and "Организация А" in home.text
+    assert home.status_code == 200 and "Анализ расходов" in home.text
 
     out = client.post("/web/logout", data={"csrf_token": token})
     assert out.status_code == 303

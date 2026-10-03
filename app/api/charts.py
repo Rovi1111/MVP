@@ -18,7 +18,7 @@ CHART_NAME = "fact-budget"
 
 
 def build_figure(db: Session, user: User, period: str, **filters):
-    """Единственная диаграмма сервиса: факт по месяцам (с накоплением) и линия бюджета."""
+    """Единственная диаграмма сервиса: динамика факта (с накоплением) и линия бюджета."""
     data = analysis.run_fact_budget(db, user, period, **filters)
     colors = charts.colors_for(c.name for c in CategoryRepository(db, user.org_id).list())
     return charts.fact_budget_figure(data, f"Факт и бюджет: {data['period']['label']}", colors)
@@ -27,8 +27,11 @@ def build_figure(db: Session, user: User, period: str, **filters):
 @router.get("/{name}")
 def chart(
     name: str,
-    period: str = Query(..., description="Период, как в /api/analytics; расширяется до месяцев"),
+    period: str = Query(
+        ..., description="Период, как в /api/analytics; расширяется до целых шагов"
+    ),
     format: str = Query("json", pattern="^(json|png)$"),
+    granularity: str = Query("month", description="Шаг: day, month, quarter, year"),
     budget_upload_id: int | None = Query(
         None, description="Версия бюджета; по умолчанию последняя"
     ),
@@ -39,7 +42,7 @@ def chart(
     user: User = Depends(require(Permission.ANALYTICS_VIEW)),
     db: Session = Depends(get_db),
 ):
-    """Диаграмма fact-budget: фактические расходы по месяцам и линия бюджета.
+    """Диаграмма fact-budget: динамика фактических расходов и линия бюджета.
 
     format=json — фигура Plotly, format=png — картинка для презентаций.
     """
@@ -49,6 +52,7 @@ def chart(
         db,
         user,
         period,
+        granularity=granularity,
         cost_center_id=cost_center_id,
         budget_upload_id=budget_upload_id,
         categories=categories,

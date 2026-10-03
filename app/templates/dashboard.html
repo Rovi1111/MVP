@@ -1,58 +1,59 @@
 {% extends "base.html" %}
-{% from "partials/period_inputs.html" import period_inputs, mode_select, chart_filters %}
 {% block title %}Анализ расходов — {{ app_name }}{% endblock %}
 {% block head %}<script src="/assets/plotly.min.js" defer></script><script src="/static/app.js" defer></script>{% endblock %}
 {% block content %}
 <h1>Анализ расходов</h1>
 {% if not bounds.fact_to %}
 <p class="alert warn">Факт ещё не загружен. {% if can(user, Permission.DATA_MANUAL) %}<a href="/web/data">Загрузить данные</a>{% endif %}</p>
-{% else %}
-<p class="muted">Данные загружены за {{ bounds.fact_from | ru_date }} — {{ bounds.fact_to | ru_date }}.</p>
 {% endif %}
 
-<form id="analysis-form" class="card stack" hx-get="/web/dashboard/result" hx-target="#result"
-      hx-indicator="#result-indicator" {% if bounds.fact_to %}hx-trigger="submit, load"{% endif %}>
-  <div class="row">
-    {{ mode_select(modes, values) }}
-    {{ period_inputs("p1", "Период 1", values, years, month_names) }}
-    {{ period_inputs("p2", "Период 2", values, years, month_names) }}
+<form id="analysis-form" class="card filters" hx-get="/web/dashboard/result" hx-target="#result"
+      hx-indicator="#result-indicator" hx-trigger="submit, change{% if bounds.fact_to %}, load{% endif %}">
+  <div class="filter-group">
+    <span class="filter-title">Период</span>
+    <div class="chips">
+      {% for p in presets %}
+      <button type="button" class="chip {% if p.label == selected.label %}active{% endif %}"
+              data-preset data-from="{{ p.start }}" data-to="{{ p.end }}">{{ p.label }}</button>
+      {% endfor %}
+    </div>
+    <div class="range">
+      <input type="date" name="date_from" value="{{ selected.start }}" aria-label="Начало периода" required>
+      <span class="muted">—</span>
+      <input type="date" name="date_to" value="{{ selected.end }}" aria-label="Конец периода" required>
+    </div>
   </div>
-  <div class="row">
-    <label>Категория <input name="category" placeholder="часть названия"></label>
-    <label>ЦФО
-      <select name="cost_center_id"><option value="">Все</option>
-        {% for c in cost_centers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>Сортировка
-      <select name="sort">
-        <option value="delta">Изменение</option><option value="pct_change">Изменение, %</option>
-        <option value="amount_p1">Сумма периода 1</option><option value="amount_p2">Сумма периода 2</option>
-        <option value="category">Категория</option>
-      </select>
-    </label>
-    <label>Порядок
-      <select name="order"><option value="desc">По убыванию</option><option value="asc">По возрастанию</option></select>
-    </label>
-    <label>Бюджет на диаграмме
-      <select name="budget_upload_id">
-        <option value="">Последняя версия</option>
-        {% for v in bounds.budget_versions %}
-        <option value="{{ v.upload_id }}">Версия {{ v.version }}{% if v.file_name %} · {{ v.file_name }}{% endif %}</option>
-        {% endfor %}
-      </select>
-    </label>
+
+  <div class="filter-group">
+    <span class="filter-title">Шаг диаграммы</span>
+    <div class="segmented">
+      {% for code, title in steps.items() %}
+      <label><input type="radio" name="step" value="{{ code }}" {% if code == "month" %}checked{% endif %}><span>{{ title }}</span></label>
+      {% endfor %}
+    </div>
   </div>
-  <div class="row checks">
-    <span class="muted small">Тип изменения:</span>
-    {% for code, title in change_types.items() %}
-    <label class="inline"><input type="checkbox" name="change_type" value="{{ code }}"> {{ title }}</label>
-    {% endfor %}
+
+  <div class="filter-group">
+    <span class="filter-title">Версия бюджета</span>
+    <select name="budget_upload_id">
+      <option value="">Последняя</option>
+      {% for v in bounds.budget_versions %}
+      <option value="{{ v.upload_id }}">Версия {{ v.version }}{% if v.file_name %} · {{ v.file_name }}{% endif %}</option>
+      {% endfor %}
+    </select>
   </div>
-  {{ chart_filters(categories) }}
-  {% if bounds.fact_to and not bounds.budget_versions %}<p class="muted small">Бюджет не загружен — на диаграмме будет только факт.</p>{% endif %}
-  <div class="row"><button type="submit">Сравнить</button>
-    <span id="result-indicator" class="htmx-indicator muted">Считаем…</span></div>
+
+  <div class="filter-group wide">
+    <span class="filter-title">Статьи расходов <span class="muted">— если ничего не отмечено, показаны все</span></span>
+    <div class="chips">
+      {% for c in categories %}
+      <label class="chip check"><input type="checkbox" name="categories" value="{{ c.name }}"><span>{{ c.name }}</span></label>
+      {% else %}
+      <span class="muted small">Статьи появятся после загрузки данных.</span>
+      {% endfor %}
+    </div>
+  </div>
 </form>
+<p id="result-indicator" class="htmx-indicator muted">Обновляем диаграмму…</p>
 <div id="result"></div>
 {% endblock %}

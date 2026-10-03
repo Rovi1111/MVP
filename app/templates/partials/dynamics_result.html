@@ -1,0 +1,8 @@
+{% from "partials/macros.html" import chart_block %}
+<section class="card">
+  {{ chart_block(chart, "fact-budget") }}
+  <p class="muted small">Столбцы — фактические расходы по статьям, линия — бюджет.
+    {% if no_budget_by_day %}По дням бюджет не показывается: он задаётся не детальнее месяца.{% endif %}</p>
+</section>
+
+{% include "partials/ai_panel.html" %}

@@ -13,7 +13,7 @@ from app.services import analyses, charts, prompts, reports
 from app.services.ollama import OllamaError
 from app.services.settings import get_org_settings
 from app.web.common import can, render
-from app.web.dashboard import read_comparison_params, read_int
+from app.web.dashboard import read_int, read_params
 
 router = APIRouter(prefix="/analyses")
 _viewer = require(Permission.ANALYTICS_VIEW)
@@ -29,7 +29,7 @@ async def create(request: Request, user: User = Depends(_viewer), db: Session = 
     """Сохраняет расчёт с текущими параметрами формы; action=ai — ещё и запускает AI."""
     form = await request.form()
     try:
-        record = analyses.save_analysis(db, user, "comparison", read_comparison_params(form))
+        record = analyses.save_analysis(db, user, "dynamics", read_params(form))
     except AppError as exc:
         return render(request, "partials/alert.html", {"message": exc.message}, user)
     if form.get("action") != "ai":

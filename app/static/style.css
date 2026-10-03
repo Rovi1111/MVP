@@ -80,9 +80,6 @@ td.actions button { margin-left: .75rem; }
 .danger-text { color: var(--danger) !important; }
 td input, td select { width: 100%; }
 code { background: var(--bg); padding: 0 .25rem; border-radius: 4px; }
-fieldset.period { border: 1px solid var(--border); border-radius: 6px; padding: .4rem .7rem .6rem;
-  display: flex; gap: .6rem; align-items: end; margin: 0; }
-fieldset.period legend { font-size: .85rem; color: var(--muted); padding: 0 .3rem; }
 [hidden] { display: none !important; }
 .checks { align-items: center; }
 .kpis { display: flex; gap: 2rem; flex-wrap: wrap; margin: .5rem 0 1rem; }
@@ -103,3 +100,25 @@ select[multiple] { min-width: 220px; }
   border-radius: 6px; padding: 1rem; margin: .75rem 0; }
 details { margin: .5rem 0; } details form { margin-top: .5rem; }
 textarea { width: 100%; }
+/* Фильтры страницы анализа */
+.filters { display: flex; flex-wrap: wrap; gap: 1.1rem 2rem; align-items: flex-start; }
+.filter-group { display: flex; flex-direction: column; gap: .45rem; }
+.filter-group.wide { flex-basis: 100%; }
+.filter-title { font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); }
+.filter-title .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chip { font: inherit; font-size: .9rem; cursor: pointer; padding: .3rem .8rem; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); user-select: none; }
+.chip:hover { border-color: var(--accent); }
+.chip.active, .chip.check:has(input:checked) { background: var(--accent); border-color: var(--accent);
+  color: var(--accent-text); }
+.chip.check { display: inline-flex; flex-direction: row; }
+.chip.check input, .segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.range { display: flex; align-items: center; gap: .5rem; }
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.segmented label { flex-direction: row; cursor: pointer; }
+.segmented span { padding: .4rem .9rem; font-size: .9rem; color: var(--text); }
+.segmented label + label span { border-left: 1px solid var(--border); }
+.segmented input:checked + span { background: var(--accent); color: var(--accent-text); }
+.segmented input:focus-visible + span, .chip.check:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }

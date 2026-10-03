@@ -1,6 +1,6 @@
-"""Страница анализа: сравнение периодов и диаграмма «факт и бюджет»."""
+"""Страница анализа: динамика расходов за длительный период на одной диаграмме."""
 
-from decimal import Decimal, InvalidOperation
+from datetime import date
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request
@@ -13,16 +13,16 @@ from app.deps import require
 from app.errors import AppError, InvalidDataError
 from app.models import User
 from app.permissions import Permission
-from app.repositories.reference import CategoryRepository, CostCenterRepository
+from app.repositories.reference import CategoryRepository
 from app.services import analysis, charts, prompts
-from app.services.analytics import ChangeType
-from app.services.periods import parse_range
+from app.services.periods import GRANULARITIES, month_end
 from app.services.settings import get_org_settings
-from app.web import period_form
-from app.web.common import LABELS, can, render
+from app.web.common import can, render
 
 router = APIRouter()
 _viewer = require(Permission.ANALYTICS_VIEW)
+STEPS = {"day": "Дни", "month": "Месяцы", "quarter": "Кварталы", "year": "Годы"}
+DEFAULT_PRESET = "12 месяцев"
 
 
 def read_int(params: QueryParams, name: str) -> int | None:
@@ -30,30 +30,42 @@ def read_int(params: QueryParams, name: str) -> int | None:
     return int(value) if value.isdigit() else None
 
 
-def _decimal(params: QueryParams, name: str, title: str) -> Decimal | None:
-    value = (params.get(name) or "").strip().replace(" ", "").replace(",", ".")
-    if not value:
-        return None
-    try:
-        return Decimal(value)
-    except InvalidOperation:
-        raise InvalidDataError(f"{title}: ожидается число") from None
+def _months_back(day: date, months: int) -> date:
+    """Первое число месяца, отстоящего на months месяцев назад."""
+    index = day.year * 12 + day.month - 1 - months
+    return date(index // 12, index % 12 + 1, 1)
 
 
-def read_comparison_params(params) -> dict:
-    """Параметры анализа из полей формы (общие для расчёта и сохранения анализа)."""
+def presets(bounds: dict, today: date | None = None) -> list[dict]:
+    """Быстрые периоды. «N месяцев» отсчитываются от последнего месяца с данными."""
+    today = today or date.today()
+    last = date.fromisoformat(bounds["fact_to"]) if bounds.get("fact_to") else today
+    end = month_end(last)
+    items = [
+        ("12 месяцев", _months_back(end, 11), end),
+        ("24 месяца", _months_back(end, 23), end),
+        ("Текущий год", date(today.year, 1, 1), date(today.year, 12, 31)),
+        ("Прошлый год", date(today.year - 1, 1, 1), date(today.year - 1, 12, 31)),
+    ]
+    if bounds.get("fact_from"):
+        items.append(("Все данные", date.fromisoformat(bounds["fact_from"]).replace(day=1), end))
+    return [
+        {"label": label, "start": start.isoformat(), "end": finish.isoformat()}
+        for label, start, finish in items
+    ]
+
+
+def read_params(params) -> dict:
+    """Параметры анализа из полей формы (общие для диаграммы и сохранения анализа)."""
+    start, end = (params.get("date_from") or "").strip(), (params.get("date_to") or "").strip()
+    if not start or not end:
+        raise InvalidDataError("Укажите начало и конец периода")
+    step = params.get("step") or "month"
     return {
-        "period1": period_form.compose(params, "p1"),
-        "period2": period_form.compose(params, "p2"),
-        "cost_center_id": read_int(params, "cost_center_id"),
-        "category": params.get("category") or None,
-        "change_types": params.getlist("change_type") or None,
-        "sort": params.get("sort") or "delta",
-        "descending": params.get("order", "desc") != "asc",
+        "period": f"{start}..{end}",
+        "granularity": step if step in GRANULARITIES else "month",
         "budget_upload_id": read_int(params, "budget_upload_id"),
-        "chart_categories": [c for c in params.getlist("chart_categories") if c],
-        "amount_min": _decimal(params, "amount_min", "Сумма от"),
-        "amount_max": _decimal(params, "amount_max", "Сумма до"),
+        "categories": [c for c in params.getlist("categories") if c],
     }
 
 
@@ -70,14 +82,13 @@ def ai_context(db: Session, user: User) -> dict | None:
 @router.get("/dashboard")
 def dashboard_page(request: Request, user: User = Depends(_viewer), db: Session = Depends(get_db)):
     bounds = analysis.data_bounds(db, user)
+    options = presets(bounds)
     context = {
-        **period_form.CONTEXT,
         "bounds": bounds,
-        "years": period_form.years(bounds),
-        "values": period_form.defaults(bounds, ("p1", "p2")),
+        "presets": options,
+        "selected": next(p for p in options if p["label"] == DEFAULT_PRESET),
+        "steps": STEPS,
         "categories": CategoryRepository(db, user.org_id).list(),
-        "cost_centers": CostCenterRepository(db, user.org_id).list(),
-        "change_types": {t.value: LABELS[t.value] for t in ChangeType},
     }
     return render(request, "dashboard.html", context, user)
 
@@ -87,39 +98,17 @@ def dashboard_result(
     request: Request, user: User = Depends(_viewer), db: Session = Depends(get_db)
 ):
     try:
-        query = read_comparison_params(request.query_params)
-        result = analysis.run_comparison(
-            db,
-            user,
-            query["period1"],
-            query["period2"],
-            cost_center_id=query["cost_center_id"],
-            category=query["category"],
-            change_types=query["change_types"],
-            sort=query["sort"],
-            descending=query["descending"],
-        )
-        # Диаграмма — от начала раннего периода до конца позднего
-        ranges = [parse_range(query["period1"]), parse_range(query["period2"])]
-        span = f"{min(r.start for r in ranges)}..{max(r.end for r in ranges)}"
-        filters = {
-            "cost_center_id": query["cost_center_id"],
-            "budget_upload_id": query["budget_upload_id"],
-            "categories": query["chart_categories"],
-            "amount_min": query["amount_min"],
-            "amount_max": query["amount_max"],
-        }
-        figure = build_figure(db, user, span, **filters)
+        query = read_params(request.query_params)
+        figure = build_figure(db, user, **query)
     except AppError as exc:
         return render(request, "partials/alert.html", {"message": exc.message}, user)
-    link = {k: v for k, v in filters.items() if v not in (None, "", [])}
-    link |= {"period": span, "format": "png"}
+    link = {k: v for k, v in query.items() if v not in (None, "", [])} | {"format": "png"}
     context = {
-        "result": result,
         "chart": {
             "figure": charts.figure_json(figure),
             "png_url": f"/api/charts/{CHART_NAME}?{urlencode(link, doseq=True)}",
         },
+        "no_budget_by_day": query["granularity"] == "day",
         "ai": ai_context(db, user),
     }
-    return render(request, "partials/comparison_result.html", context, user)
+    return render(request, "partials/dynamics_result.html", context, user)

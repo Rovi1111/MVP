@@ -1,22 +1,32 @@
+import html
+import json
+import re
 from datetime import date
 from decimal import Decimal as D
 
 import pytest
 
 from app.services import charts
-from app.services.analytics import fact_budget_series, filter_totals, month_starts
-from app.web import period_form
+from app.services.analytics import compare_halves, fact_budget_series, filter_totals
+from app.services.periods import PeriodRange, bucket_starts, whole_buckets
+from app.web.dashboard import presets
 from tests.helpers import load
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 FACT = [
+    ("15.11.2024", "Аренда", 90, "Офис"),
     ("15.01.2025", "Аренда", 100, "Офис"),
     ("2025-01", "Реклама", 40, "Офис"),
     ("10.02.2025", "Аренда", 180, "Офис"),
     ("11.02.2025", "Лицензии", 25, "Склад"),
 ]
-BUDGET = [("2025-01", "Аренда", 80), ("2025-01", "Реклама", 60), ("2025-02", "Аренда", 150)]
-FORM = {"mode": "month", "p1_year": "2025", "p1_month": "1", "p2_year": "2025", "p2_month": "2"}
+BUDGET = [
+    ("2024-11", "Аренда", 100),
+    ("2025-01", "Аренда", 80),
+    ("2025-01", "Реклама", 60),
+    ("2025-02", "Аренда", 150),
+]
+FORM = {"date_from": "2024-11-01", "date_to": "2025-02-28", "step": "month"}
 
 
 @pytest.fixture
@@ -25,6 +35,16 @@ def client(client_for):
     load(client, "fact", FACT)
     load(client, "budget", BUDGET)
     return client
+
+
+def embedded_figure(page: str) -> dict:
+    """Фигура Plotly, встроенная в страницу в атрибут data-figure."""
+    raw = re.search(r'data-figure="([^"]*)"', page).group(1)
+    return json.loads(html.unescape(raw))
+
+
+def traces(figure_json: dict) -> dict:
+    return {t["name"]: t["y"] for t in figure_json["data"]}
 
 
 # ---------- чистые функции ----------
@@ -38,16 +58,34 @@ def test_filter_totals():
     assert filter_totals(totals, ["Аренда"], D("200")) == {}
 
 
-def test_month_starts():
-    assert month_starts(date(2024, 11, 15), date(2025, 2, 1)) == [
+def test_bucket_starts_and_whole_buckets():
+    assert bucket_starts(date(2024, 11, 15), date(2025, 2, 1), "month") == [
         date(2024, 11, 1),
         date(2024, 12, 1),
         date(2025, 1, 1),
         date(2025, 2, 1),
     ]
+    assert bucket_starts(date(2024, 11, 15), date(2025, 2, 1), "quarter") == [
+        date(2024, 10, 1),
+        date(2025, 1, 1),
+    ]
+    assert bucket_starts(date(2024, 11, 15), date(2025, 2, 1), "year") == [
+        date(2024, 1, 1),
+        date(2025, 1, 1),
+    ]
+    assert len(bucket_starts(date(2024, 2, 27), date(2024, 3, 2), "day")) == 5  # високосный год
+
+    period = PeriodRange(date(2024, 11, 15), date(2025, 2, 1), "x")
+    assert (whole_buckets(period, "month").start, whole_buckets(period, "month").end) == (
+        date(2024, 11, 1),
+        date(2025, 2, 28),
+    )
+    assert whole_buckets(period, "quarter").end == date(2025, 3, 31)
+    assert whole_buckets(period, "year").start == date(2024, 1, 1)
+    assert whole_buckets(period, "day") is period
 
 
-def test_fact_budget_series():
+def test_fact_budget_series_by_month():
     fact = [
         (date(2025, 1, 15), "A", D("30")),
         (date(2025, 1, 20), "B", D("10")),
@@ -71,12 +109,63 @@ def test_fact_budget_series():
     assert data["budget"] == [50.0, 20.5, 0.0]
 
 
-def test_fact_budget_series_without_budget_and_quarter_budget():
+@pytest.mark.parametrize(
+    ("granularity", "periods", "totals", "budget"),
+    [
+        ("quarter", ["4 кв. 2024", "1 кв. 2025"], [10.0, 35.0], [100.0, 60.0]),
+        ("year", ["2024 год", "2025 год"], [10.0, 35.0], [100.0, 60.0]),
+    ],
+)
+def test_fact_budget_series_coarse_steps(granularity, periods, totals, budget):
+    fact = [
+        (date(2024, 12, 31), "A", D("10")),
+        (date(2025, 1, 1), "A", D("30")),
+        (date(2025, 3, 5), "B", D("5")),
+    ]
+    plan = [(date(2024, 10, 1), "quarter", D("100")), (date(2025, 2, 1), "month", D("60"))]
+    data = fact_budget_series(fact, plan, date(2024, 10, 1), date(2025, 3, 31), granularity)
+    assert (data["periods"], data["totals"], data["budget"]) == (periods, totals, budget)
+
+
+def test_fact_budget_series_by_day_has_no_budget():
+    fact = [(date(2025, 1, 1), "A", D("1")), (date(2025, 1, 3), "A", D("2"))]
+    data = fact_budget_series(
+        fact, [(date(2025, 1, 1), "month", D("50"))], date(2025, 1, 1), date(2025, 1, 3), "day"
+    )
+    assert data["periods"] == ["01.01.2025", "02.01.2025", "03.01.2025"]
+    assert data["totals"] == [1.0, 0.0, 2.0] and data["budget"] is None
+
+
+def test_quarter_budget_is_spread_over_months():
     assert fact_budget_series([], None, date(2025, 1, 1), date(2025, 2, 28))["budget"] is None
     quarterly = [(date(2025, 1, 1), "quarter", D("300")), (date(2025, 4, 1), "quarter", D("90"))]
     data = fact_budget_series([], quarterly, date(2025, 2, 1), date(2025, 4, 30))
-    # квартальный бюджет делится на три месяца; январь вне периода отброшен
-    assert data["budget"] == [100.0, 100.0, 30.0]
+    assert data["budget"] == [100.0, 100.0, 30.0]  # январь вне периода отброшен
+
+
+def test_compare_halves():
+    series = {
+        "periods": ["янв", "фев", "мар", "апр", "май"],
+        "series": [
+            {"category": "Рост", "amounts": [10.0, 10.0, 99.0, 20.0, 20.0]},
+            {"category": "Новая", "amounts": [0.0, 0.0, 0.0, 0.0, 7.0]},
+            {"category": "Ушла", "amounts": [5.0, 0.0, 0.0, 0.0, 0.0]},
+        ],
+    }
+    halves = compare_halves(series)
+    assert (halves["label_p1"], halves["label_p2"]) == (
+        "янв — фев",
+        "апр — май",
+    )  # средний месяц пропущен
+    rows = {r["category"]: r for r in halves["rows"]}
+    assert (rows["Рост"]["amount_p1"], rows["Рост"]["amount_p2"], rows["Рост"]["pct_change"]) == (
+        20.0,
+        40.0,
+        100.0,
+    )
+    assert rows["Новая"]["change_type"] == "new" and rows["Ушла"]["change_type"] == "removed"
+    assert compare_halves({"periods": ["янв"], "series": series["series"]}) is None
+    assert compare_halves({"periods": ["янв", "фев"], "series": []}) is None
 
 
 def test_fact_budget_figure():
@@ -90,9 +179,7 @@ def test_fact_budget_figure():
     assert figure.layout.barmode == "relative"
     assert [(t.type, t.name) for t in figure.data] == [("bar", "A"), ("scatter", "Бюджет")]
     assert "Доля" in figure.data[0].hovertemplate and list(figure.data[1].y) == [50.0, 20.0]
-
-    without_budget = charts.fact_budget_figure(data | {"budget": None}, "t")
-    assert [t.type for t in without_budget.data] == ["bar"]
+    assert [t.type for t in charts.fact_budget_figure(data | {"budget": None}, "t").data] == ["bar"]
     empty = charts.fact_budget_figure(
         {"periods": ["я"], "totals": [0.0], "series": [], "budget": None}, "t"
     )
@@ -108,41 +195,78 @@ def test_png_export():
     assert png.startswith(PNG_SIGNATURE)
 
 
-def test_default_periods_differ_in_every_mode():
-    values = period_form.defaults({"fact_to": "2025-06-25"}, ("p1", "p2"))
-    assert (values["p1_month"], values["p2_month"]) == ("5", "6")
-    assert (values["p1_quarter"], values["p2_quarter"]) == ("1", "2")
-    assert values["p2_to"] == "2025-06-25"
-    january = period_form.defaults({"fact_to": "2025-01-10"}, ("p1", "p2"))
-    assert (january["p1_month"], january["p1_year"], january["p1_quarter"]) == ("12", "2024", "4")
+def test_presets():
+    bounds = {"fact_from": "2024-03-10", "fact_to": "2025-06-25"}
+    items = {p["label"]: (p["start"], p["end"]) for p in presets(bounds, today=date(2026, 10, 3))}
+    assert items == {
+        "12 месяцев": ("2024-07-01", "2025-06-30"),  # от последнего месяца с данными
+        "24 месяца": ("2023-07-01", "2025-06-30"),
+        "Текущий год": ("2026-01-01", "2026-12-31"),
+        "Прошлый год": ("2025-01-01", "2025-12-31"),
+        "Все данные": ("2024-03-01", "2025-06-30"),
+    }
+    no_data = [
+        p["label"] for p in presets({"fact_from": None, "fact_to": None}, today=date(2026, 1, 5))
+    ]
+    assert "Все данные" not in no_data and no_data[0] == "12 месяцев"
 
 
 # ---------- API ----------
 
 
-def test_chart_api_json(client):
-    chart = client.get("/api/charts/fact-budget", params={"period": "2025-01..2025-02"}).json()
-    traces = {t["name"]: t for t in chart["data"]}
-    assert set(traces) == {"Аренда", "Реклама", "Лицензии", "Бюджет"}
-    assert traces["Аренда"]["type"] == "bar" and traces["Аренда"]["y"] == [100.0, 180.0]
-    assert traces["Бюджет"]["type"] == "scatter" and traces["Бюджет"]["y"] == [140.0, 150.0]
-    assert traces["Бюджет"]["x"] == ["январь 2025", "февраль 2025"]
+def test_chart_api_steps(client):
+    params = {"period": "2024-11..2025-02"}
+    monthly = client.get("/api/charts/fact-budget", params=params).json()
+    assert traces(monthly) == {
+        "Аренда": [90.0, 0.0, 100.0, 180.0],
+        "Реклама": [0.0, 0.0, 40.0, 0.0],
+        "Лицензии": [0.0, 0.0, 0.0, 25.0],
+        "Бюджет": [100.0, 0.0, 140.0, 150.0],
+    }
+    assert monthly["data"][0]["x"] == ["ноябрь 2024", "декабрь 2024", "январь 2025", "февраль 2025"]
+    assert monthly["data"][-1]["type"] == "scatter"
 
+    quarterly = client.get(
+        "/api/charts/fact-budget", params=params | {"granularity": "quarter"}
+    ).json()
+    assert quarterly["data"][0]["x"] == ["4 кв. 2024", "1 кв. 2025"]
+    assert traces(quarterly)["Бюджет"] == [100.0, 290.0] and traces(quarterly)["Аренда"] == [
+        90.0,
+        280.0,
+    ]
+
+    yearly = client.get("/api/charts/fact-budget", params=params | {"granularity": "year"}).json()
+    assert traces(yearly)["Аренда"] == [90.0, 280.0]
+
+    daily = client.get(
+        "/api/charts/fact-budget", params={"period": "2025-02-09..2025-02-12", "granularity": "day"}
+    ).json()
+    assert traces(daily) == {"Аренда": [0.0, 180.0, 0.0, 0.0], "Лицензии": [0.0, 0.0, 25.0, 0.0]}
+
+    too_long = client.get(
+        "/api/charts/fact-budget", params={"period": "2023..2025", "granularity": "day"}
+    )
+    assert too_long.status_code == 422 and "не больше" in too_long.json()["detail"]
+    assert (
+        client.get("/api/charts/fact-budget", params=params | {"granularity": "week"}).status_code
+        == 422
+    )
+
+
+def test_chart_api_filters(client):
     only = client.get(
         "/api/charts/fact-budget", params={"period": "2025-01", "categories": ["Реклама"]}
     ).json()
-    assert {t["name"]: t["y"] for t in only["data"]} == {"Реклама": [40.0], "Бюджет": [60.0]}
+    assert traces(only) == {"Реклама": [40.0], "Бюджет": [60.0]}
     ranged = client.get(
         "/api/charts/fact-budget", params={"period": "2025-01", "amount_min": 50}
     ).json()
     assert [t["name"] for t in ranged["data"]] == ["Аренда", "Бюджет"]
-
     centers = {c["name"]: c["id"] for c in client.get("/api/cost-centers").json()}
     warehouse = client.get(
         "/api/charts/fact-budget", params={"period": "2025-02", "cost_center_id": centers["Склад"]}
     ).json()
-    assert {t["name"]: t["y"] for t in warehouse["data"]} == {"Лицензии": [25.0], "Бюджет": [0.0]}
-
+    assert traces(warehouse) == {"Лицензии": [25.0], "Бюджет": [0.0]}
     empty = client.get("/api/charts/fact-budget", params={"period": "2030-01"}).json()
     assert empty["data"] == [] and empty["layout"]["annotations"][0]["text"] == "Нет данных"
     for removed in ("pie", "stacked", "plan-fact"):
@@ -172,42 +296,58 @@ def test_chart_api_png_download(client):
     assert "attachment" in response.headers["content-disposition"]
 
 
-# ---------- страницы ----------
+# ---------- страница ----------
 
 
-def test_dashboard_page_and_result(client):
+def test_dashboard_page(client):
     page = client.get("/web/dashboard")
     assert page.status_code == 200 and "Анализ расходов" in page.text
-    assert 'value="2" selected' in page.text  # по умолчанию — последний месяц с данными
+    for text in (
+        "12 месяцев",
+        "24 месяца",
+        "Все данные",
+        "Шаг диаграммы",
+        "Версия бюджета",
+        "Статьи расходов",
+    ):
+        assert text in page.text
+    # по умолчанию — последние 12 месяцев с данными
+    assert (
+        'name="date_from" value="2024-03-01"' in page.text
+        and 'name="date_to" value="2025-02-28"' in page.text
+    )
+    assert 'value="Реклама"' in page.text
+    assert "Организация А" not in page.text  # название организации в меню не выводится
+    for removed in ("Период 1", "Тип изменения", "ЦФО", "Сравнить"):
+        assert removed not in page.text
 
+
+def test_dashboard_result_is_single_chart(client):
     result = client.get("/web/dashboard/result", params=FORM)
     assert result.status_code == 200
-    for text in ("Новая", "Исчезнувшая", "change-new", "change-removed", "Скачать PNG"):
-        assert text in result.text
-    assert result.text.count('class="chart"') == 1  # диаграмма одна
-    assert "Факт и бюджет по месяцам" in result.text
-    assert "/api/charts/fact-budget?period=2025-01-01..2025-02-28&amp;format=png" in result.text
-    assert "Перерасход" not in result.text and "План-факт" not in result.text
+    assert result.text.count('class="chart"') == 1 and "<table" not in result.text
+    assert "Скачать PNG" in result.text and "Запустить AI-анализ" in result.text
+    assert "period=2024-11-01..2025-02-28&amp;granularity=month&amp;format=png" in result.text
+    figure = embedded_figure(result.text)
+    assert figure["data"][0]["x"][0] == "ноябрь 2024" and "Бюджет" in traces(figure)
 
-    only_new = client.get("/web/dashboard/result", params=FORM | {"change_type": "new"})
-    assert "Лицензии" in only_new.text and "Показано категорий: 1 из 3" in only_new.text
+    filtered = client.get(
+        "/web/dashboard/result", params=FORM | {"categories": ["Реклама", "Лицензии"]}
+    )
+    assert set(traces(embedded_figure(filtered.text))) == {"Реклама", "Лицензии", "Бюджет"}
+    assert "categories=%D0%A0" in filtered.text  # фильтр попадает и в ссылку на PNG
+    by_day = client.get("/web/dashboard/result", params=FORM | {"step": "day"})
+    assert "По дням бюджет не показывается" in by_day.text
     empty = client.get(
-        "/web/dashboard/result", params=FORM | {"p1_year": "2019", "p2_year": "2019"}
+        "/web/dashboard/result", params={"date_from": "2019-01-01", "date_to": "2019-12-31"}
     )
-    assert "Нет данных" in empty.text
-    quarter = client.get(
-        "/web/dashboard/result",
-        params={
-            "mode": "quarter",
-            "p1_year": "2024",
-            "p1_quarter": "4",
-            "p2_year": "2025",
-            "p2_quarter": "1",
-        },
+    assert embedded_figure(empty.text)["layout"]["annotations"][0]["text"] == "Нет данных"
+    missing = client.get("/web/dashboard/result", params={"date_from": "", "date_to": ""})
+    assert "Укажите начало и конец периода" in missing.text
+    reversed_range = client.get(
+        "/web/dashboard/result", params={"date_from": "2025-02-01", "date_to": "2025-01-01"}
     )
-    assert "4 кв. 2024" in quarter.text and "1 кв. 2025" in quarter.text
-    bad = client.get("/web/dashboard/result", params=FORM | {"amount_min": "много"})
-    assert "ожидается число" in bad.text
+    assert "Начало периода позже конца" in reversed_range.text
 
 
 def test_sidebar_navigation_and_removed_pages(client, client_for):

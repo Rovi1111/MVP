@@ -31,7 +31,7 @@ def analysis_id(client, db):
     from app.models import Analysis
 
     created = client.post(
-        "/api/analyses", json={"kind": "comparison", "period1": "2025-01", "period2": "2025-02"}
+        "/api/analyses", json={"period": "2025-01..2025-02", "categories": ["Аренда", "Реклама"]}
     ).json()
     record = db.get(Analysis, created["id"])
     record.ai_text = "# Вывод\nРасходы **выросли**.\n\nРекомендации: пересмотреть аренду <офис>."
@@ -84,23 +84,22 @@ def test_excel_export_has_numeric_cells(client, analysis_id):
     assert f"report_{analysis_id}_" in response.headers["content-disposition"]
 
     workbook = load_workbook(io.BytesIO(response.content))
-    assert workbook.sheetnames == ["Параметры", "Сравнение", "Факт и бюджет", "AI-заключение"]
-    rows = {row[0]: row for row in workbook["Сравнение"].iter_rows(min_row=2, values_only=True)}
-    assert rows["Аренда"][1:5] == (100000, 180000, 80000, 80)
-    assert rows["Реклама"][1] == 40000.55 and isinstance(
-        rows["Реклама"][1], float
-    )  # число, не текст
-    assert rows["Лицензии"][4] == "н/д" and rows["Лицензии"][5] == "Новая"
-    assert rows["Итого"][1:4] == (140000.55, 205000, 64999.45)
-    assert workbook["Сравнение"]["B2"].number_format == "#,##0.00"
-
+    assert workbook.sheetnames == [
+        "Параметры",
+        "Факт и бюджет",
+        "AI-заключение",
+    ]  # таблицы сравнения нет
     chart = list(workbook["Факт и бюджет"].iter_rows(values_only=True))
-    assert chart[0] == ("Месяц", "Аренда", "Реклама", "Лицензии", "Факт всего", "Бюджет")
-    assert chart[1] == ("январь 2025", 100000, 40000.55, 0, 140000.55, 0)
-    assert chart[2] == ("февраль 2025", 180000, 0, 25000, 205000, 180000)
+    assert chart[0] == ("Период", "Аренда", "Реклама", "Факт всего", "Бюджет")
+    assert chart[1] == ("январь 2025", 100000, 40000.55, 140000.55, 0)
+    assert chart[2] == ("февраль 2025", 180000, 0, 180000, 150000)  # «Лицензии» отфильтрованы
+    assert isinstance(chart[1][2], float)  # число, не текст
+    assert workbook["Факт и бюджет"]["B2"].number_format == "#,##0.00"
     assert "выросли" in workbook["AI-заключение"]["A2"].value
     params = dict(workbook["Параметры"].iter_rows(min_row=2, values_only=True))
     assert params["Организация"] == "Организация А" and params["Версия бюджета"] == "1"
+    assert params["Статьи расходов"] == "Аренда, Реклама" and params["Шаг диаграммы"] == "месяц"
+    assert params["Период"].startswith("01.01.2025 — 28.02.2025")
 
 
 def test_pdf_export_with_single_chart(client, analysis_id):
@@ -115,7 +114,7 @@ def test_pdf_export_with_single_chart(client, analysis_id):
 def test_export_without_ai_and_budget(client_for):
     client = client_for("b_admin")
     load(client, "fact", [("2025-01", "Аренда", 10), ("2025-02", "Аренда", 20)])
-    created = client.post("/api/analyses", json={"period1": "2025-01", "period2": "2025-02"}).json()
+    created = client.post("/api/analyses", json={"period": "2025-01..2025-02"}).json()
     assert created["result"]["plan_fact"] is None and created["result"]["chart"]["budget"] is None
     assert client.get(f"/api/analyses/{created['id']}/export").content.startswith(b"%PDF")
     workbook = load_workbook(
@@ -124,7 +123,7 @@ def test_export_without_ai_and_budget(client_for):
     assert workbook["AI-заключение"]["A2"].value == "AI-анализ не запускался"
     assert [c.value for c in workbook["Факт и бюджет"][2]] == ["январь 2025", 10, 10, "нет"]
     params = dict(workbook["Параметры"].iter_rows(min_row=2, values_only=True))
-    assert params["Версия бюджета"] == "бюджет не загружен"
+    assert params["Версия бюджета"] == "бюджет не загружен" and params["Статьи расходов"] == "все"
 
 
 def test_export_errors_and_isolation(client, client_for, analysis_id):
@@ -164,7 +163,7 @@ def test_email_report(client, analysis_id, smtp, db):
     assert (server.host, server.port) == ("smtp.example.ru", 2525)
     assert server.steps == ["tls", ("login", "robot", "smtp-secret")]
     assert message["To"] == "boss@example.ru" and message["From"] == "reports@example.ru"
-    assert "январь 2025" in message["Subject"]
+    assert "Динамика расходов" in message["Subject"]
     names = [part.get_filename() for part in message.iter_attachments()]
     assert [name.rsplit(".", 1)[1] for name in names] == ["pdf", "xlsx"]
 

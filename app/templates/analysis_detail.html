@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "partials/period_inputs.html" import chart_block %}
+{% from "partials/macros.html" import chart_block %}
 {% block title %}{{ analysis.title }} — {{ app_name }}{% endblock %}
 {% block head %}<script src="/assets/plotly.min.js" defer></script><script src="/static/app.js" defer></script>{% endblock %}
 {% block content %}
@@ -27,10 +27,12 @@
 </section>
 {% endif %}
 
-{% if snapshot.comparison %}
-  {% with result=snapshot.comparison, ai=None %}
-    {% include "partials/comparison_result.html" %}
-  {% endwith %}
+{% if chart %}
+<section class="card">
+  {{ chart_block(chart, "fact-budget") }}
+  <p class="muted small">Столбцы — фактические расходы по статьям, линия — бюджет.
+    {% if snapshot.chart.categories %}Статьи: {{ snapshot.chart.categories | join(", ") }}.{% endif %}</p>
+</section>
 {% else %}
 <p class="alert warn">Этот анализ сохранён в старом формате и больше не отображается.</p>
 {% endif %}

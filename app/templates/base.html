@@ -15,7 +15,6 @@
   {% if user %}
   <aside class="sidebar">
     <a class="brand" href="/web/dashboard">{{ app_name }}</a>
-    <div class="org muted small">{{ user.organization.name }}</div>
     <nav>
       {% for item in nav_for(user) %}
       <a href="{{ item.url }}" {% if request.url.path.startswith(item.url) %}class="active"{% endif %}>{{ item.title }}</a>

@@ -13,8 +13,6 @@ from xml.sax.saxutils import escape
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
@@ -26,29 +24,19 @@ from reportlab.platypus import (
     SimpleDocTemplate,
     Spacer,
     Table,
-    TableStyle,
 )
 from sqlalchemy.orm import Session
 
 from app.errors import AppError
 from app.models import Analysis, User
 from app.services import analyses, charts, mailer
-from app.services.ai_summary import money, percent
+from app.services.ai_summary import STEP_NAMES
 from app.services.audit import log_action
 from app.services.settings import get_org_settings
 from app.timeutil import to_local
 
-CHANGE_LABELS = {
-    "increase": "Рост",
-    "decrease": "Снижение",
-    "new": "Новая",
-    "removed": "Исчезнувшая",
-    "no_change": "Без изменений",
-}
 MONEY_FORMAT = "#,##0.00"
-PCT_FORMAT = '0.0"%"'
 _HEADER_FILL = PatternFill("solid", fgColor="DDE5F4")
-_ALERT_FILL = PatternFill("solid", fgColor="FDECEA")
 
 # Шрифт с кириллицей для PDF: (обычный, полужирный). Первый найденный вариант.
 _STATIC_FONTS = Path(__file__).resolve().parent.parent / "static" / "fonts"
@@ -75,30 +63,22 @@ def file_name(record: Analysis, extension: str) -> str:
 
 
 def _param_rows(record: Analysis, organization: str) -> list[tuple[str, str]]:
-    snapshot = record.result
     rows = [
         ("Организация", organization),
         ("Отчёт", record.title),
         ("Дата расчёта", f"{to_local(record.created_at):%d.%m.%Y %H:%M}"),
         ("Автор", record.author.login),
     ]
-    comparison = snapshot.get("comparison")
-    if comparison:
-        params = comparison["params"]
-        for title, key in (("Период 1", "period1"), ("Период 2", "period2")):
-            period = params[key]
-            rows.append((title, f"{period['label']} ({period['start']} — {period['end']})"))
-        rows.append(("ЦФО", params.get("cost_center") or "Все"))
-        if params.get("category") or params.get("change_types"):
-            types = ", ".join(CHANGE_LABELS[t] for t in params.get("change_types") or [])
-            rows.append(
-                ("Фильтры таблицы", "; ".join(x for x in (params.get("category"), types) if x))
-            )
-    chart = snapshot.get("chart")
+    chart = record.result.get("chart")
     if chart:
+        period = chart["period"]
         version = chart.get("budget_version")
-        rows.append(("Диаграмма", f"факт и бюджет, {chart['period']['label']}"))
-        rows.append(("Версия бюджета", str(version) if version else "бюджет не загружен"))
+        rows += [
+            ("Период", f"{period['label']} ({period['start']} — {period['end']})"),
+            ("Шаг диаграммы", STEP_NAMES.get(chart.get("granularity", "month"), "месяц")),
+            ("Статьи расходов", ", ".join(chart.get("categories") or []) or "все"),
+            ("Версия бюджета", str(version) if version else "бюджет не загружен"),
+        ]
     return rows
 
 
@@ -126,7 +106,7 @@ def _format_columns(sheet, formats: dict[int, str]) -> None:
 
 
 def build_excel(record: Analysis, organization: str) -> bytes:
-    """Книга Excel: параметры, сравнение, данные диаграммы, AI-заключение. Суммы — числами."""
+    """Книга Excel: параметры, данные диаграммы, AI-заключение. Суммы — числами."""
     snapshot = record.result
     workbook = Workbook()
     workbook.remove(workbook.active)
@@ -135,36 +115,10 @@ def build_excel(record: Analysis, organization: str) -> bytes:
     for row in _param_rows(record, organization):
         sheet.append(row)
 
-    comparison = snapshot.get("comparison")
-    if comparison:
-        params = comparison["params"]
-        headers = [
-            "Категория", params["period1"]["label"], params["period2"]["label"],
-            "Изменение", "Изменение, %", "Тип изменения",
-        ]  # fmt: skip
-        sheet = _sheet(workbook, "Сравнение", headers, [36, 18, 18, 18, 14, 18])
-        for row in comparison["rows"]:
-            sheet.append(
-                [
-                    row["category"], row["amount_p1"], row["amount_p2"], row["delta"],
-                    row["pct_change"] if row["pct_change"] is not None else "н/д",
-                    CHANGE_LABELS[row["change_type"]],
-                ]
-            )  # fmt: skip
-        sheet.append(
-            [
-                "Итого", comparison["total_p1"], comparison["total_p2"], comparison["total_delta"],
-                comparison["total_pct"] if comparison["total_pct"] is not None else "н/д", "",
-            ]
-        )  # fmt: skip
-        for cell in sheet[sheet.max_row]:
-            cell.font = Font(bold=True)
-        _format_columns(sheet, {1: MONEY_FORMAT, 2: MONEY_FORMAT, 3: MONEY_FORMAT, 4: PCT_FORMAT})
-
     chart = snapshot.get("chart")
     if chart:
         headers = (
-            ["Месяц"] + [item["category"] for item in chart["series"]] + ["Факт всего", "Бюджет"]
+            ["Период"] + [item["category"] for item in chart["series"]] + ["Факт всего", "Бюджет"]
         )
         sheet = _sheet(workbook, "Факт и бюджет", headers, [18] + [18] * (len(headers) - 1))
         for index, label in enumerate(chart["periods"]):
@@ -208,28 +162,13 @@ def _styles() -> dict[str, ParagraphStyle]:
     base = ParagraphStyle("base", fontName=regular, fontSize=9, leading=12)
     return {
         "base": base,
-        "num": ParagraphStyle("num", parent=base, alignment=TA_RIGHT),
         "bold": ParagraphStyle("bold", parent=base, fontName=bold),
-        "num_bold": ParagraphStyle("num_bold", parent=base, fontName=bold, alignment=TA_RIGHT),
         "title": ParagraphStyle("title", parent=base, fontName=bold, fontSize=16, leading=20),
         "h2": ParagraphStyle(
             "h2", parent=base, fontName=bold, fontSize=12, leading=16, spaceBefore=10
         ),
         "text": ParagraphStyle("text", parent=base, fontSize=10, leading=14, spaceAfter=4),
     }
-
-
-def _table(rows: list[list], widths: list[float], highlight: set[int] = frozenset()) -> Table:
-    table = Table(rows, colWidths=widths, repeatRows=1)
-    style = [
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DDE5F4")),
-        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#C5CBD5")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, colors.HexColor("#6B7482")),
-    ]
-    style += [("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FDECEA")) for i in highlight]
-    table.setStyle(TableStyle(style))
-    return table
 
 
 def _image(figure, width_mm: float, pixels: tuple[int, int]) -> Image:
@@ -251,7 +190,7 @@ def _ai_paragraphs(text: str, styles: dict) -> list:
 
 
 def build_pdf(record: Analysis, organization: str) -> bytes:
-    """PDF-отчёт: параметры, таблица сравнения, диаграмма-картинка, AI-заключение."""
+    """PDF-отчёт: параметры, диаграмма-картинка, AI-заключение."""
     styles = _styles()
     snapshot = record.result
     figures = analyses.snapshot_figures(snapshot)
@@ -264,39 +203,8 @@ def build_pdf(record: Analysis, organization: str) -> bytes:
     params = [[p(k, "bold"), p(v)] for k, v in _param_rows(record, organization)]
     flow.append(Table(params, colWidths=[45 * mm, width - 45 * mm]))
 
-    comparison = snapshot.get("comparison")
-    if comparison:
-        labels = comparison["params"]
-        flow.append(p("Сравнение периодов", "h2"))
-        rows = [
-            [
-                p("Категория", "bold"), p(labels["period1"]["label"], "num_bold"),
-                p(labels["period2"]["label"], "num_bold"), p("Изменение", "num_bold"),
-                p("%", "num_bold"), p("Тип", "bold"),
-            ]
-        ]  # fmt: skip
-        for row in comparison["rows"]:
-            rows.append(
-                [
-                    p(row["category"]), p(money(row["amount_p1"]), "num"),
-                    p(money(row["amount_p2"]), "num"), p(money(row["delta"]), "num"),
-                    p(percent(row["pct_change"]), "num"), p(CHANGE_LABELS[row["change_type"]]),
-                ]
-            )  # fmt: skip
-        rows.append(
-            [
-                p("Итого", "bold"), p(money(comparison["total_p1"]), "num_bold"),
-                p(money(comparison["total_p2"]), "num_bold"),
-                p(money(comparison["total_delta"]), "num_bold"),
-                p(percent(comparison["total_pct"]), "num_bold"), p(""),
-            ]
-        )  # fmt: skip
-        flow.append(_table(rows, [width * s for s in (0.26, 0.155, 0.155, 0.155, 0.105, 0.17)]))
-        for warning in comparison.get("warnings", []):
-            flow.append(p(f"Внимание: {warning}"))
-        flow.append(Spacer(1, 4 * mm))
     if "fact_budget" in figures:
-        flow.append(p("Факт и бюджет по месяцам", "h2"))
+        flow.append(p("Факт и бюджет", "h2"))
         flow.append(_image(figures["fact_budget"], 180, (1100, 560)))
 
     flow.append(p("AI-заключение", "h2"))

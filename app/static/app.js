@@ -55,18 +55,29 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// Форма анализа: поля периода зависят от детализации
-function applyMode(select) {
-  const form = select.closest("form");
-  form.querySelectorAll("[data-mode]").forEach((el) => {
-    el.hidden = !el.dataset.mode.split(" ").includes(select.value);
+// Быстрые периоды: кнопка подставляет даты и обновляет диаграмму
+document.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element)) return;
+  const preset = e.target.closest("[data-preset]");
+  if (!preset) return;
+  const form = preset.closest("form");
+  form.elements.date_from.value = preset.dataset.from;
+  form.elements.date_to.value = preset.dataset.to;
+  markPreset(form);
+  htmx.trigger(form, "submit");
+});
+// Подсветка кнопки, совпадающей с выбранными датами
+function markPreset(form) {
+  form.querySelectorAll("[data-preset]").forEach((button) => {
+    button.classList.toggle("active",
+      button.dataset.from === form.elements.date_from.value &&
+      button.dataset.to === form.elements.date_to.value);
   });
 }
-document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll("[data-mode-select]").forEach((select) => {
-    applyMode(select);
-    select.addEventListener("change", () => applyMode(select));
-  });
+document.addEventListener("change", (e) => {
+  if (e.target instanceof HTMLInputElement && e.target.type === "date" && e.target.form) {
+    markPreset(e.target.form);
+  }
 });
 
 // Диаграммы Plotly: рисуем после загрузки страницы и после каждого обновления HTMX
@@ -80,14 +91,3 @@ function renderCharts(root) {
 }
 document.addEventListener("DOMContentLoaded", () => renderCharts(document));
 document.addEventListener("htmx:afterSettle", (e) => renderCharts(e.target));
-
-// Сортировка по клику на заголовок таблицы сравнения
-document.addEventListener("click", (e) => {
-  const th = e.target.closest("th[data-sort]");
-  const form = document.getElementById("analysis-form");
-  if (!th || !form || !form.elements.sort) return;
-  const same = form.elements.sort.value === th.dataset.sort;
-  form.elements.order.value = same && form.elements.order.value === "desc" ? "asc" : "desc";
-  form.elements.sort.value = th.dataset.sort;
-  htmx.trigger(form, "submit");
-});

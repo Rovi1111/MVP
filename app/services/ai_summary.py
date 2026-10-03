@@ -5,20 +5,27 @@ from string import Formatter
 
 TOP_N = 5
 PLAN_FACT_LIMIT = 10
+STEP_NAMES = {"day": "день", "month": "месяц", "quarter": "квартал", "year": "год"}
 PLACEHOLDERS: dict[str, str] = {
     "organization": "название организации",
-    "period1": "первый период (или период план-факта)",
-    "period2": "второй период",
-    "totals": "итоги по периодам и общее изменение",
-    "top_increases": f"до {TOP_N} крупнейших ростов",
-    "top_decreases": f"до {TOP_N} крупнейших снижений",
-    "new_categories": "новые категории",
-    "removed_categories": "исчезнувшие категории",
-    "plan_fact": "итоги план-факта и существенные отклонения",
+    "period": "анализируемый период",
+    "totals": "итоги за период: факт, бюджет, среднее, максимум и минимум",
+    "dynamics": "факт и бюджет по месяцам (или кварталам)",
+    "period1": "первая половина периода",
+    "period2": "вторая половина периода",
+    "top_increases": f"до {TOP_N} статей с наибольшим ростом (вторая половина к первой)",
+    "top_decreases": f"до {TOP_N} статей с наибольшим снижением",
+    "new_categories": "статьи, появившиеся во второй половине периода",
+    "removed_categories": "статьи, исчезнувшие во второй половине периода",
+    "plan_fact": "существенные отклонения факта от бюджета по статьям",
     "data": "все перечисленные данные одним блоком",
 }
-_DATA_PLACEHOLDERS = set(PLACEHOLDERS) - {"organization", "period1", "period2"}
+_DATA_PLACEHOLDERS = set(PLACEHOLDERS) - {"organization", "period", "period1", "period2"}
 _NOTHING = "нет"
+
+
+class OutdatedSnapshotError(ValueError):
+    """Снимок сохранён в старом формате (сравнение двух периодов)."""
 
 
 def money(value) -> str:
@@ -35,6 +42,53 @@ def _lines(items: list[str]) -> str:
     return "\n".join(f"— {item}" for item in items) if items else _NOTHING
 
 
+def _deviation(fact: float, budget: float) -> str:
+    delta = fact - budget
+    share = percent(delta / budget * 100) if budget else "н/д"
+    return f"{money(delta)} ({share})"
+
+
+def _totals_text(dynamics: dict) -> str:
+    totals, labels = dynamics["totals"], dynamics["periods"]
+    step = STEP_NAMES.get(dynamics.get("granularity", "month"), "шаг")
+    fact = sum(totals)
+    parts = [f"Период: {dynamics['period']['label']}, шагов ({step}): {len(totals)}."]
+    if dynamics.get("categories"):
+        parts.append(f"Только статьи: {', '.join(dynamics['categories'])}.")
+    parts.append(f"Факт всего: {money(fact)}.")
+    if dynamics.get("budget") is not None:
+        budget = sum(dynamics["budget"])
+        parts.append(
+            f"Бюджет всего: {money(budget)}, отклонение факта: {_deviation(fact, budget)}."
+        )
+    else:
+        parts.append("Бюджет не загружен.")
+    if totals:
+        highest, lowest = (
+            max(range(len(totals)), key=totals.__getitem__),
+            min(range(len(totals)), key=totals.__getitem__),
+        )
+        parts.append(
+            f"В среднем за {step}: {money(fact / len(totals))}. "
+            f"Максимум: {labels[highest]} — {money(totals[highest])}. "
+            f"Минимум: {labels[lowest]} — {money(totals[lowest])}."
+        )
+    return " ".join(parts)
+
+
+def _dynamics_text(dynamics: dict) -> str:
+    budget = dynamics.get("budget")
+    lines = []
+    for index, label in enumerate(dynamics["periods"]):
+        line = f"{label}: факт {money(dynamics['totals'][index])}"
+        if budget is not None:
+            line += f", бюджет {money(budget[index])}, отклонение " + _deviation(
+                dynamics["totals"][index], budget[index]
+            )
+        lines.append(line)
+    return _lines(lines)
+
+
 def _change_line(row: dict) -> str:
     return (
         f"{row['category']}: {money(row['amount_p1'])} → {money(row['amount_p2'])} "
@@ -42,70 +96,64 @@ def _change_line(row: dict) -> str:
     )
 
 
-def _plan_fact_text(plan_fact: dict | None) -> str:
+def _plan_fact_text(plan_fact: dict | None, categories: list[str]) -> str:
     if plan_fact is None:
         return "данных о бюджете нет"
-    header = (
-        f"Период: {plan_fact['params']['period']['label']}. "
-        f"План {money(plan_fact['total_plan'])}, факт {money(plan_fact['total_fact'])}, "
-        f"отклонение {money(plan_fact['total_deviation'])} "
-        f"({percent(plan_fact['total_deviation_pct'])}). "
-        f"Порог существенности: {plan_fact['threshold_pct']:g} %."
-    )
-    significant = sorted(
-        (r for r in plan_fact["rows"] if r["significant"]), key=lambda r: -abs(r["deviation"])
-    )[:PLAN_FACT_LIMIT]
+    rows = plan_fact["rows"]
+    if categories:
+        rows = [r for r in rows if r["category"] in categories]
+    significant = sorted((r for r in rows if r["significant"]), key=lambda r: -abs(r["deviation"]))
+    header = f"Порог существенности: {plan_fact['threshold_pct']:g} %."
     if not significant:
-        return f"{header}\nСущественных отклонений нет."
+        return f"{header} Существенных отклонений по статьям нет."
     lines = []
-    for row in significant:
-        name = row["category"] + (f" [{row['cost_center']}]" if row.get("cost_center") else "")
+    for row in significant[:PLAN_FACT_LIMIT]:
         verdict = "перерасход" if row["overspend"] else "экономия"
         lines.append(
-            f"{name}: план {money(row['plan'])}, факт {money(row['fact'])}, отклонение "
+            f"{row['category']}: план {money(row['plan'])}, факт {money(row['fact'])}, отклонение "
             f"{money(row['deviation'])} ({percent(row['deviation_pct'])}) — {verdict}"
         )
-    return f"{header}\nСущественные отклонения:\n{_lines(lines)}"
+    return f"{header} За весь период:\n{_lines(lines)}"
 
 
 def build_aggregates(snapshot: dict, organization: str) -> dict[str, str]:
     """Значения плейсхолдеров промпта из снимка расчёта.
 
-    snapshot: {"comparison": {...} | None, "plan_fact": {...} | None}.
-    В результат попадают только итоги и топ-списки — не отдельные операции.
+    snapshot: {"dynamics": ряд по месяцам/кварталам, "halves": сравнение половин периода | None,
+    "plan_fact": отклонения от бюджета | None}. В результат попадают только итоги
+    и топ-списки — не отдельные операции.
     """
-    comparison, plan_fact = snapshot.get("comparison"), snapshot.get("plan_fact")
-    values = {"organization": organization, "plan_fact": _plan_fact_text(plan_fact)}
-    if comparison is None:
-        label = plan_fact["params"]["period"]["label"] if plan_fact else _NOTHING
-        only_plan_fact = "не рассчитывалось (анализ только план-факта)"
+    dynamics = snapshot.get("dynamics")
+    if not dynamics:
+        raise OutdatedSnapshotError
+    halves = snapshot.get("halves")
+    values = {
+        "organization": organization,
+        "period": dynamics["period"]["label"],
+        "totals": _totals_text(dynamics),
+        "dynamics": _dynamics_text(dynamics),
+        "plan_fact": _plan_fact_text(snapshot.get("plan_fact"), dynamics.get("categories") or []),
+    }
+    if halves is None:
+        short = "период слишком короткий для сравнения половин"
         values |= {
-            "period1": label,
-            "period2": label,
-            "totals": only_plan_fact,
-            "top_increases": only_plan_fact,
-            "top_decreases": only_plan_fact,
-            "new_categories": only_plan_fact,
-            "removed_categories": only_plan_fact,
+            "period1": values["period"],
+            "period2": values["period"],
+            "top_increases": short,
+            "top_decreases": short,
+            "new_categories": short,
+            "removed_categories": short,
         }
     else:
-        rows = comparison.get("all_rows") or comparison["rows"]
-        params = comparison["params"]
+        rows = halves["rows"]
 
         def of_type(change_type: str, reverse: bool) -> list[dict]:
             found = [r for r in rows if r["change_type"] == change_type]
             return sorted(found, key=lambda r: r["delta"], reverse=reverse)[:TOP_N]
 
-        scope = f" ЦФО: {params['cost_center']}." if params.get("cost_center") else ""
         values |= {
-            "period1": params["period1"]["label"],
-            "period2": params["period2"]["label"],
-            "totals": (
-                f"{params['period1']['label']}: {money(comparison['total_p1'])}; "
-                f"{params['period2']['label']}: {money(comparison['total_p2'])}; "
-                f"изменение: {money(comparison['total_delta'])} "
-                f"({percent(comparison['total_pct'])}). Категорий: {len(rows)}.{scope}"
-            ),
+            "period1": halves["label_p1"],
+            "period2": halves["label_p2"],
             "top_increases": _lines([_change_line(r) for r in of_type("increase", True)]),
             "top_decreases": _lines([_change_line(r) for r in of_type("decrease", False)]),
             "new_categories": _lines(
@@ -118,14 +166,16 @@ def build_aggregates(snapshot: dict, organization: str) -> dict[str, str]:
                 ]
             ),
         }
+    halves_title = f"«{values['period1']}» → «{values['period2']}»"
     values["data"] = "\n".join(
         [
             f"Итоги: {values['totals']}",
-            f"Крупнейшие росты:\n{values['top_increases']}",
-            f"Крупнейшие снижения:\n{values['top_decreases']}",
-            f"Новые категории:\n{values['new_categories']}",
-            f"Исчезнувшие категории:\n{values['removed_categories']}",
-            f"План-факт: {values['plan_fact']}",
+            f"Динамика по периодам:\n{values['dynamics']}",
+            f"Рост по статьям ({halves_title}):\n{values['top_increases']}",
+            f"Снижение по статьям:\n{values['top_decreases']}",
+            f"Появившиеся статьи:\n{values['new_categories']}",
+            f"Исчезнувшие статьи:\n{values['removed_categories']}",
+            f"Отклонения от бюджета по статьям. {values['plan_fact']}",
         ]
     )
     return values
@@ -158,15 +208,16 @@ DEFAULT_TEMPLATES = [
         "name": "Для финансового аналитика / руководителя",
         "scenario": "analyst",
         "text": (
-            "Ты — опытный финансовый аналитик. Подготовь аналитическое заключение о расходах "
-            "организации «{organization}» для руководителя.\n\n"
+            "Ты — опытный финансовый аналитик. Подготовь аналитическое заключение о динамике "
+            "расходов организации «{organization}» за период «{period}» для руководителя.\n\n"
             "Данные (только агрегаты, суммы в рублях):\n{data}\n\n"
             "Структура заключения:\n"
-            "1. Общий тренд: динамика совокупных расходов между «{period1}» и «{period2}».\n"
+            "1. Общий тренд: как менялись совокупные расходы от периода к периоду, сезонность, "
+            "пики и спады.\n"
             "2. Крупнейшие росты: статьи, вероятные драйверы, вклад в общее изменение.\n"
             "3. Крупнейшие снижения.\n"
-            "4. Новые и исчезнувшие категории: что это означает для структуры затрат.\n"
-            "5. Существенные отклонения от бюджета: перерасходы и экономия.\n"
+            "4. Новые и исчезнувшие статьи: что это означает для структуры затрат.\n"
+            "5. Исполнение бюджета: периоды и статьи с существенным перерасходом или экономией.\n"
             "6. Рекомендации: 2–4 практических шага по корректировке бюджета и контролю затрат.\n\n"
             "Используй финансовую терминологию (структура затрат, отклонение от плана, "
             "исполнение бюджета). Опирайся только на приведённые цифры, ничего не выдумывай. "
@@ -177,12 +228,13 @@ DEFAULT_TEMPLATES = [
         "name": "Простым языком",
         "scenario": "plain",
         "text": (
-            "Ты помогаешь владельцу бизнеса «{organization}» разобраться в расходах. У него нет "
-            "финансового образования, поэтому объясняй простыми словами, без терминов.\n\n"
+            "Ты помогаешь владельцу бизнеса «{organization}» разобраться, как менялись расходы "
+            "за период «{period}». У него нет финансового образования, поэтому объясняй простыми "
+            "словами, без терминов.\n\n"
             "Вот цифры (суммы в рублях):\n{data}\n\n"
             "Расскажи по порядку:\n"
-            "1. Что в целом произошло с расходами между «{period1}» и «{period2}»: выросли, "
-            "снизились, насколько.\n"
+            "1. Что в целом происходило с расходами: росли, снижались, в какие месяцы были "
+            "самые большие и самые маленькие траты.\n"
             "2. На что стали тратить заметно больше.\n"
             "3. На что стали тратить заметно меньше.\n"
             "4. Какие расходы появились впервые и какие исчезли.\n"

@@ -7,58 +7,49 @@ from sqlalchemy.orm import Session
 from app.errors import InvalidDataError, NotFoundError
 from app.models import Analysis, User
 from app.repositories.analyses import AnalysisRepository, PromptTemplateRepository
-from app.services import ai_summary, analysis, charts, ollama, prompts
+from app.services import ai_summary, analysis, analytics, charts, ollama, prompts
 from app.services.audit import log_action
 from app.services.settings import get_org_settings
 
-KINDS = ("comparison",)
+KINDS = ("dynamics",)
+# Для AI ряд длиннее трёх лет укрупняется до кварталов, чтобы промпт оставался компактным
+AI_MAX_MONTHS = 36
 
 
 def build_snapshot(db: Session, user: User, kind: str, params: dict) -> tuple[str, dict]:
-    """Выполняет расчёт и возвращает (заголовок, снимок результатов).
+    """Выполняет расчёт динамики и возвращает (заголовок, снимок результатов).
 
-    В снимок входят сравнение периодов, данные диаграммы «факт и бюджет» и — только
-    для AI-анализа — отклонения от бюджета за второй период (если бюджет загружен).
+    chart — данные диаграммы с выбранным шагом; dynamics, halves и plan_fact — агрегаты
+    для AI-анализа (по месяцам, для длинных периодов — по кварталам).
     Отчёт не зависит от последующих загрузок.
     """
-    if kind != "comparison":
-        raise InvalidDataError("Тип анализа должен быть comparison")
-    cost_center_id = params.get("cost_center_id")
-    comparison = analysis.run_comparison(
-        db,
-        user,
-        params.get("period1"),
-        params.get("period2"),
-        cost_center_id=cost_center_id,
-        category=params.get("category"),
-        change_types=params.get("change_types") or None,
-        sort=params.get("sort") or "delta",
-        descending=params.get("descending", True),
-    )
-    p1, p2 = comparison["params"]["period1"], comparison["params"]["period2"]
-    span = f"{min(p1['start'], p2['start'])}..{max(p1['end'], p2['end'])}"
+    if kind != "dynamics":
+        raise InvalidDataError("Тип анализа должен быть dynamics")
+    filters = {
+        "budget_upload_id": params.get("budget_upload_id"),
+        "categories": params.get("categories") or None,
+    }
+    period = params.get("period")
     chart = analysis.run_fact_budget(
-        db,
-        user,
-        span,
-        cost_center_id=cost_center_id,
-        budget_upload_id=params.get("budget_upload_id"),
-        categories=params.get("chart_categories") or None,
-        amount_min=params.get("amount_min"),
-        amount_max=params.get("amount_max"),
+        db, user, period, granularity=params.get("granularity") or "month", **filters
     )
+    span = f"{chart['period']['start']}..{chart['period']['end']}"
+    dynamics = analysis.run_fact_budget(db, user, span, granularity="month", **filters)
+    if len(dynamics["periods"]) > AI_MAX_MONTHS:
+        dynamics = analysis.run_fact_budget(db, user, span, granularity="quarter", **filters)
     try:
         plan_fact = analysis.run_plan_fact(
-            db,
-            user,
-            params.get("period2"),
-            budget_upload_id=params.get("budget_upload_id"),
-            cost_center_id=cost_center_id,
+            db, user, span, budget_upload_id=params.get("budget_upload_id")
         )
     except (InvalidDataError, NotFoundError):
         plan_fact = None  # бюджета нет — AI-анализ строится без отклонений от плана
-    title = f"Сравнение: {p1['label']} → {p2['label']}"
-    return title, {"comparison": comparison, "plan_fact": plan_fact, "chart": chart}
+    snapshot = {
+        "chart": chart,
+        "dynamics": dynamics,
+        "halves": analytics.compare_halves(dynamics),
+        "plan_fact": plan_fact,
+    }
+    return f"Динамика расходов: {chart['period']['label']}", snapshot
 
 
 def save_analysis(db: Session, user: User, kind: str, params: dict) -> Analysis:
@@ -91,7 +82,13 @@ def build_prompt(db: Session, user: User, record: Analysis, template_id: int | N
         template = PromptTemplateRepository(db, user.org_id).get(template_id)
         if template is None or not template.is_active:
             raise NotFoundError("Шаблон промпта не найден")
-    aggregates = ai_summary.build_aggregates(record.result, user.organization.name)
+    try:
+        aggregates = ai_summary.build_aggregates(record.result, user.organization.name)
+    except ai_summary.OutdatedSnapshotError:
+        raise InvalidDataError(
+            "Этот анализ сохранён в старом формате. Выполните расчёт заново на странице "
+            "«Анализ расходов»"
+        ) from None
     return template, ai_summary.render_prompt(template.text, aggregates)
 
 
@@ -120,9 +117,7 @@ def snapshot_figures(snapshot: dict) -> dict:
     chart = snapshot.get("chart")
     if not chart:
         return {}
-    comparison = snapshot.get("comparison") or {}
-    names = [r["category"] for r in comparison.get("all_rows", [])]
+    names = [s["category"] for s in (snapshot.get("dynamics") or chart)["series"]]
     names += [s["category"] for s in chart["series"]]
     title = f"Факт и бюджет: {chart['period']['label']}"
-    figure = charts.fact_budget_figure(chart, title, charts.colors_for(names))
-    return {"fact_budget": figure}
+    return {"fact_budget": charts.fact_budget_figure(chart, title, charts.colors_for(names))}

@@ -9,13 +9,22 @@ from app.services import ai_summary, ollama
 from app.services.settings import OrgSettings
 from tests.helpers import load
 
-FACT = [(f"{day:02}.01.2025", f"Статья {i}", 100 + i, "Офис") for i, day in enumerate(range(1, 9))]
-FACT += [
-    (f"{day:02}.02.2025", f"Статья {i}", 200 + 10 * i, "Офис") for i, day in enumerate(range(1, 9))
+# Январь–июнь 2025: «Статья i» растёт во втором квартале, одна статья исчезает, одна появляется
+FACT = [
+    (f"{day:02}.{month:02}.2025", f"Статья {i}", 100 + i, "Офис")
+    for month in (1, 2, 3)
+    for i, day in enumerate(range(1, 9))
 ]
-FACT += [("15.01.2025", "Ушедшая", 55, "Склад"), ("15.02.2025", "Свежая", 77.7, "Склад")]
-BUDGET = [("2025-02", "Статья 0", 100), ("2025-02", "Статья 1", 500)]
-COMPARISON = {"kind": "comparison", "period1": "2025-01", "period2": "2025-02"}
+FACT += [
+    (f"{day:02}.{month:02}.2025", f"Статья {i}", 200 + 10 * i, "Офис")
+    for month in (4, 5, 6)
+    for i, day in enumerate(range(1, 9))
+]
+FACT += [("15.02.2025", "Ушедшая", 55, "Склад"), ("15.05.2025", "Свежая", 77.7, "Склад")]
+BUDGET = [(f"2025-{month:02}", "Статья 0", 100) for month in range(1, 7)]
+BUDGET += [(f"2025-{month:02}", "Статья 1", 500) for month in range(1, 7)]
+ANALYSIS = {"period": "2025-01..2025-06"}
+FORM = {"date_from": "2025-01-01", "date_to": "2025-06-30", "step": "month"}
 
 
 class FakeOllama:
@@ -78,41 +87,77 @@ def test_template_problems():
 
 
 def test_prompt_contains_only_aggregates(client, fake):
-    created = client.post("/api/analyses", json=COMPARISON | {"run_ai": True}).json()
+    created = client.post("/api/analyses", json=ANALYSIS | {"run_ai": True}).json()
     assert created["ai_text"] == "Заключение." and created["ai_error"] is None
+    assert created["title"] == "Динамика расходов: 01.01.2025 — 30.06.2025"
     prompt = fake.prompt
     body = json.loads(fake.requests[-1].content)
     assert body["model"] == "llama3.1" and body["stream"] is False
     assert fake.requests[-1].url == "http://localhost:11434/api/generate"
 
-    assert "Организация А" in prompt and "январь 2025" in prompt and "февраль 2025" in prompt
+    assert "Организация А" in prompt and "01.01.2025 — 30.06.2025" in prompt
+    # динамика по месяцам с бюджетом и отклонением
+    assert "— январь 2025: факт 828,00, бюджет 600,00, отклонение 228,00 (+38,0 %)" in prompt
+    assert "— июнь 2025: факт 1 880,00" in prompt and prompt.count(", бюджет 600,00") == 6
+    assert "Максимум: май 2025 — 1 957,70" in prompt and "Минимум: январь 2025 — 828,00" in prompt
+    # половины периода: 1 и 2 кварталы
+    assert "«январь 2025 — март 2025» → «апрель 2025 — июнь 2025»" in prompt
     assert "Свежая: 77,70" in prompt and "Ушедшая: было 55,00" in prompt
-    assert "перерасход" in prompt  # отклонение от бюджета за второй период
+    assert "перерасход" in prompt and "экономия" in prompt  # Статья 1: план 3000, факт 933
     # Топ ограничен: из 8 выросших статей в промпт попадают 5 крупнейших
-    changes = prompt.split("План-факт:")[0]
-    assert sum(f"Статья {i}:" in changes for i in range(8)) == ai_summary.TOP_N
-    assert "Статья 7: 107,00 → 270,00" in prompt and "Статья 0: 100,00" not in changes
+    growth = prompt.split("Рост по статьям")[1].split("Снижение по статьям")[0]
+    assert sum(f"Статья {i}:" in growth for i in range(8)) == ai_summary.TOP_N
+    assert "Статья 7: 321,00 → 810,00" in growth and "Статья 0:" not in growth
     # Сырых строк нет: ни дат операций, ни ЦФО отдельных записей
-    assert "15.02.2025" not in prompt and "01.01.2025" not in prompt and "Склад" not in prompt
+    assert "15.05.2025" not in prompt and "Склад" not in prompt
 
 
-def test_only_comparison_kind_is_supported(client, fake):
-    removed = client.post(
-        "/api/analyses", json={"kind": "plan_fact", "period1": "2025-01", "period2": "2025-02"}
+def test_prompt_respects_category_filter_and_short_period(client, fake):
+    client.post(
+        "/api/analyses", json={"period": "2025-05", "categories": ["Свежая"], "run_ai": True}
     )
-    assert removed.status_code == 422 and not fake.requests
+    prompt = fake.prompt
+    assert "Только статьи: Свежая." in prompt and "Факт всего: 77,70" in prompt
+    assert "период слишком короткий для сравнения половин" in prompt
+    assert "Статья 7" not in prompt
+
+
+def test_long_period_is_aggregated_to_quarters_for_ai(client, fake):
+    created = client.post("/api/analyses", json={"period": "2022..2025", "run_ai": True}).json()
+    assert created["result"]["chart"]["granularity"] == "month"  # диаграмма — как просили
+    assert created["result"]["dynamics"]["granularity"] == "quarter"
+    assert "2 кв. 2025: факт" in fake.prompt and "январь 2025" not in fake.prompt
+
+
+def test_only_dynamics_kind_is_supported(client, fake):
+    old = {"kind": "comparison", "period1": "2025-01", "period2": "2025-02"}
+    assert client.post("/api/analyses", json=old).status_code == 422
+    assert client.post("/api/analyses", json={"period": "когда-то"}).status_code == 422
+    assert not fake.requests
+
+
+def test_outdated_snapshot_is_reported(client, fake, db):
+    from app.models import Analysis
+
+    saved = client.post("/api/analyses", json=ANALYSIS).json()
+    record = db.get(Analysis, saved["id"])
+    record.result = {"comparison": {}, "plan_fact": None}  # формат прежней версии
+    db.commit()
+    response = client.post(f"/api/analyses/{saved['id']}/ai", json={})
+    assert response.status_code == 422 and "старом формате" in response.json()["detail"]
+    assert "старом формате" in client.get(f"/web/analyses/{saved['id']}").text
 
 
 def test_choose_template_and_rerun(client, fake):
     templates = client.get("/api/prompt-templates").json()
     assert [t["scenario"] for t in templates] == ["analyst", "plain"]
-    saved = client.post("/api/analyses", json=COMPARISON).json()
+    saved = client.post("/api/analyses", json=ANALYSIS).json()
     assert saved["ai_text"] is None and not fake.requests  # без run_ai Ollama не вызывается
 
     plain = client.post(
         f"/api/analyses/{saved['id']}/ai", json={"template_id": templates[1]["id"]}
     ).json()
-    assert plain["prompt_template_id"] == templates[1]["id"] and "простыми словами" in fake.prompt
+    assert plain["prompt_template_id"] == templates[1]["id"] and "простыми" in fake.prompt
     analyst = client.post(f"/api/analyses/{saved['id']}/ai", json={}).json()
     assert (
         analyst["prompt_template_id"] == templates[0]["id"] and "финансовый аналитик" in fake.prompt
@@ -150,7 +195,7 @@ def test_ollama_failures_are_explained_and_app_keeps_working(
     client, monkeypatch, handler, fragment
 ):
     FakeOllama(handler).install(monkeypatch)
-    created = client.post("/api/analyses", json=COMPARISON | {"run_ai": True})
+    created = client.post("/api/analyses", json=ANALYSIS | {"run_ai": True})
     assert created.status_code == 201  # расчёт сохранён, несмотря на сбой AI
     assert fragment in created.json()["ai_error"] and created.json()["ai_text"] is None
 
@@ -191,7 +236,7 @@ def test_settings_change_ollama_target(client, fake):
         },
     )
     assert updated.status_code == 200 and updated.json()["ollama_model"] == "qwen2.5"
-    client.post("/api/analyses", json=COMPARISON | {"run_ai": True})
+    client.post("/api/analyses", json=ANALYSIS | {"run_ai": True})
     assert str(fake.requests[-1].url) == "http://10.0.0.5:11434/api/generate"
     assert json.loads(fake.requests[-1].content)["model"] == "qwen2.5"
 
@@ -201,14 +246,13 @@ def test_settings_change_ollama_target(client, fake):
     assert "smtp_password" not in client.get("/api/settings").json()
 
 
-def test_threshold_setting_affects_plan_fact(client):
-    def significant():
-        rows = client.get("/api/analytics/plan-fact", params={"period": "2025-02"}).json()["rows"]
-        return {r["category"] for r in rows if r["significant"] and r["plan"]}
-
-    assert significant() == {"Статья 0", "Статья 1"}  # +100 % и −58 %
-    client.patch("/api/settings", json={"plan_fact_threshold": 60})
-    assert significant() == {"Статья 0"}
+def test_threshold_setting_affects_ai_aggregates(client, fake):
+    client.post("/api/analyses", json=ANALYSIS | {"run_ai": True})
+    assert "Порог существенности: 10 %" in fake.prompt and "Статья 1: план 3 000,00" in fake.prompt
+    client.patch("/api/settings", json={"plan_fact_threshold": 80})
+    client.post("/api/analyses", json=ANALYSIS | {"run_ai": True})
+    assert "Порог существенности: 80 %" in fake.prompt
+    assert "Статья 1: план 3 000,00" not in fake.prompt
 
 
 def test_prompt_template_crud(client):
@@ -256,7 +300,7 @@ def test_settings_and_templates_permissions_and_isolation(client, client_for):
     client.patch("/api/settings", json={"ollama_model": "private-model"})
     assert other.get("/api/settings").json()["ollama_model"] == "llama3.1"
 
-    saved = client.post("/api/analyses", json=COMPARISON).json()
+    saved = client.post("/api/analyses", json=ANALYSIS).json()
     assert other.get(f"/api/analyses/{saved['id']}").status_code == 404
     assert other.post(f"/api/analyses/{saved['id']}/ai", json={}).status_code == 404
     assert other.get("/api/analyses").json() == []
@@ -264,29 +308,27 @@ def test_settings_and_templates_permissions_and_isolation(client, client_for):
 
 # ---------- веб ----------
 
-FORM = {"mode": "month", "p1_year": "2025", "p1_month": "1", "p2_year": "2025", "p2_month": "2"}
-
 
 def test_web_ai_flow(client, fake):
     result = client.get("/web/dashboard/result", params=FORM)
     assert "Запустить AI-анализ" in result.text and "Простым языком" in result.text
     assert 'hx-trigger="click, load"' not in result.text  # автозапуск выключен по умолчанию
 
-    output = client.post("/web/analyses", data=FORM | {"kind": "comparison", "action": "ai"})
+    output = client.post("/web/analyses", data=FORM | {"action": "ai"})
     assert "Заключение." in output.text and "Скопировать" in output.text and len(fake.requests) == 1
-    saved = client.post("/web/analyses", data=FORM | {"kind": "comparison", "action": "save"})
+    saved = client.post("/web/analyses", data=FORM | {"action": "save"})
     assert "Расчёт сохранён" in saved.text and len(fake.requests) == 1
 
     history = client.get("/web/analyses")
-    assert history.text.count("Сравнение: январь 2025 → февраль 2025") == 2
+    assert history.text.count("Динамика расходов: 01.01.2025 — 30.06.2025") == 2
     analysis_id = client.get("/api/analyses").json()[-1]["id"]
     detail = client.get(f"/web/analyses/{analysis_id}")
     assert (
         detail.status_code == 200
         and "Заключение." in detail.text
-        and "Факт и бюджет по месяцам" in detail.text
+        and "Столбцы — фактические расходы" in detail.text
     )
-    assert detail.text.count('class="chart"') == 1 and "Перерасход" not in detail.text
+    assert detail.text.count('class="chart"') == 1 and "<table" not in detail.text
     assert f"/api/analyses/{analysis_id}/charts/fact_budget?format=png" in detail.text
     png = client.get(f"/api/analyses/{analysis_id}/charts/fact_budget", params={"format": "png"})
     assert png.content.startswith(b"\x89PNG")
@@ -295,7 +337,7 @@ def test_web_ai_flow(client, fake):
 
 def test_web_ai_error_and_auto_run(client, monkeypatch):
     FakeOllama(_raise(httpx.ConnectError("refused"))).install(monkeypatch)
-    output = client.post("/web/analyses", data=FORM | {"kind": "comparison", "action": "ai"})
+    output = client.post("/web/analyses", data=FORM | {"action": "ai"})
     assert (
         output.status_code == 200
         and "Ollama недоступна" in output.text
@@ -332,6 +374,6 @@ def test_web_settings_page_and_templates(client):
 
 def test_employee_can_run_ai_but_sees_no_settings(client, client_for, fake):
     employee = client_for("a_employee")
-    created = employee.post("/api/analyses", json=COMPARISON | {"run_ai": True})
+    created = employee.post("/api/analyses", json=ANALYSIS | {"run_ai": True})
     assert created.status_code == 201 and created.json()["ai_text"] == "Заключение."
     assert "Настройки" not in employee.get("/web/dashboard").text

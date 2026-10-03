@@ -1,0 +1,6 @@
+{% macro chart_block(chart, id) %}
+<div class="chart-box">
+  <div class="chart" id="{{ id }}" data-figure="{{ chart.figure }}"></div>
+  <a class="small" href="{{ chart.png_url }}" download>Скачать PNG</a>
+</div>
+{% endmacro %}

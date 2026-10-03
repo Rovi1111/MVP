@@ -204,3 +204,28 @@ def whole_months(period: PeriodRange) -> PeriodRange:
     if (start, end) == (period.start, period.end):
         return period
     return PeriodRange(start, end, f"{start:%d.%m.%Y} — {end:%d.%m.%Y}")
+
+
+def next_bucket(start: date, granularity: str) -> date:
+    """Начало следующего дня/месяца/квартала/года."""
+    if granularity == "day":
+        return start + timedelta(days=1)
+    return grain_end(start, granularity) + timedelta(days=1)
+
+
+def bucket_starts(start: date, end: date, granularity: str) -> list[date]:
+    """Начала всех шагов (дней, месяцев, кварталов, лет), пересекающих период."""
+    current, result = bucket_start(start, granularity), []
+    while current <= end:
+        result.append(current)
+        current = next_bucket(current, granularity)
+    return result
+
+
+def whole_buckets(period: PeriodRange, granularity: str) -> PeriodRange:
+    """Расширяет период до границ целых шагов выбранной детализации."""
+    start = bucket_start(period.start, granularity)
+    end = grain_end(bucket_start(period.end, granularity), granularity)
+    if (start, end) == (period.start, period.end):
+        return period
+    return PeriodRange(start, end, f"{start:%d.%m.%Y} — {end:%d.%m.%Y}")

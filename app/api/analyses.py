@@ -52,7 +52,6 @@ def create_analysis(
     Если Ollama недоступна, расчёт всё равно сохраняется, а причина возвращается в ai_error.
     """
     params = data.model_dump(exclude={"kind", "run_ai", "template_id"})
-    params["descending"] = params.pop("order") != "asc"
     record = analyses.save_analysis(db, user, data.kind, params)
     ai_error = None
     if data.run_ai:
