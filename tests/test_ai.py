@@ -184,7 +184,7 @@ def _raise(exc):
             _raise(httpx.ConnectError("refused")),
             "Ollama недоступна по адресу http://localhost:11434",
         ),
-        (_raise(httpx.ReadTimeout("slow")), "не ответила за 120 с"),
+        (_raise(httpx.ReadTimeout("slow")), "не ответила за 300 с"),
         (lambda r: httpx.Response(404, json={"error": "model not found"}), "ollama pull llama3.1"),
         (lambda r: httpx.Response(500, text="boom"), "вернула ошибку 500"),
         (lambda r: httpx.Response(200, json={"response": "  "}), "пустой ответ"),

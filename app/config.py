@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # Значения по умолчанию; администратор может переопределить их в UI (таблица settings)
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
-    ollama_timeout: float = 120.0
+    ollama_timeout: float = 300.0
 
     smtp_host: str = ""
     smtp_port: int = 587
