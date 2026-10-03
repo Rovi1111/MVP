@@ -3,9 +3,8 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import SESSION_COOKIE, get_current_user
+from app.deps import SESSION_COOKIE, find_current_user, get_current_user
 from app.models import User
-from app.security import read_session_token
 from app.services import auth as auth_service
 from app.web.common import render
 
@@ -13,10 +12,15 @@ router = APIRouter()
 
 
 @router.get("/login")
-def login_page(request: Request):
-    if read_session_token(request.cookies.get(SESSION_COOKIE)):
+def login_page(request: Request, db: Session = Depends(get_db)):
+    # Проверяем саму сессию, а не только подпись cookie: иначе устаревшая cookie
+    # (пользователь удалён, пароль сменён) зацикливает переадресацию login ↔ dashboard
+    if find_current_user(request, db) is not None:
         return RedirectResponse("/web/dashboard", status_code=303)
-    return render(request, "login.html")
+    response = render(request, "login.html")
+    if request.cookies.get(SESSION_COOKIE):
+        auth_service.clear_session_cookie(response)
+    return response
 
 
 @router.post("/login")

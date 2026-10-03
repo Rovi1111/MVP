@@ -18,7 +18,12 @@ CSRF_FIELD = "csrf_token"
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
-def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+def find_current_user(request: Request, db: Session) -> User | None:
+    """Пользователь по сессионной cookie или None, если сессия недействительна.
+
+    Сессия недействительна, если cookie нет или подделана, пользователь удалён или отключён
+    либо его пароль сменился после входа.
+    """
     session = read_session_token(request.cookies.get(SESSION_COOKIE))
     user = db.get(User, session[0]) if session else None
     if (
@@ -26,6 +31,13 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
         or not user.is_active
         or not compare_digest(session[1], password_fingerprint(user.password_hash))
     ):
+        return None
+    return user
+
+
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+    user = find_current_user(request, db)
+    if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Требуется вход в систему")
     return user
 

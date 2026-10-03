@@ -115,3 +115,18 @@ def test_password_change_invalidates_sessions(client_for):
     assert changed.status_code == 200
     assert employee.get("/api/auth/me").status_code == 401
     assert client_for().login("a_employee", "brand-new-password").status_code == 200
+
+
+def test_stale_session_does_not_loop_between_login_and_dashboard(client_for, db):
+    """Cookie с верной подписью, но недействительной сессией: показываем форму входа."""
+    admin, employee = client_for("a_admin"), client_for("a_employee")
+    employee_id = employee.get("/api/auth/me").json()["id"]
+    admin.patch(f"/api/users/{employee_id}", json={"password": "brand-new-password"})
+
+    assert employee.get("/web/dashboard").headers["location"] == "/web/login"
+    page = employee.get("/web/login")
+    assert page.status_code == 200 and "Вход" in page.text  # а не редирект обратно
+    assert any(
+        c.startswith("session=") for c in page.headers.get_list("set-cookie")
+    )  # cookie сброшена
+    assert admin.get("/web/login").headers["location"] == "/web/dashboard"
