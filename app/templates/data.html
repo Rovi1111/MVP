@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Ввод данных — {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Ввод данных</h1>
+
+{% if can(user, Permission.DATA_UPLOAD) %}
+<div class="grid2">
+  {% for kind, title, hint in [("fact", "Файл факта", "фактические расходы"), ("budget", "Файл бюджета", "плановые суммы")] %}
+  <section class="card">
+    <h2>{{ title }}</h2>
+    <form hx-post="/web/uploads/{{ kind }}/file" hx-encoding="multipart/form-data"
+          hx-target="#upload-result" hx-indicator="#upload-indicator">
+      <label class="dropzone">
+        <input type="file" name="file" accept=".xlsx,.xls,.csv" hidden>
+        <strong>Перетащите файл сюда</strong>
+        <span class="muted">или нажмите, чтобы выбрать — XLSX, XLS, CSV ({{ hint }})</span>
+      </label>
+    </form>
+    <p class="muted small">Колонки: Период, Статья, Сумма, ЦФО (необязательно).
+      <a href="/api/templates/{{ kind }}">Скачать шаблон Excel</a></p>
+  </section>
+  {% endfor %}
+</div>
+{% endif %}
+
+<p id="upload-indicator" class="htmx-indicator muted">Обработка…</p>
+<div id="upload-result"></div>
+
+<section class="card">
+  <h2>Ручной ввод</h2>
+  <div class="tabs" data-tabs>
+    <button type="button" class="secondary active" data-tab="tab-form">Форма</button>
+    <button type="button" class="secondary" data-tab="tab-json">JSON</button>
+  </div>
+
+  <form id="tab-form" hx-post="/web/uploads/manual/form" hx-target="#upload-result" class="stack">
+    <label class="inline">Тип данных
+      <select name="kind"><option value="fact">Факт</option><option value="budget">Бюджет</option></select>
+    </label>
+    <div class="table-wrap">
+      <table id="manual-rows">
+        <thead><tr><th>Период</th><th>Статья</th><th>Сумма</th><th>ЦФО</th><th></th></tr></thead>
+        <tbody>
+          <tr>
+            <td><input name="period" placeholder="15.01.2025 или 2025-01"></td>
+            <td><input name="category" list="category-list"></td>
+            <td><input name="amount" inputmode="decimal" placeholder="0,00"></td>
+            <td><input name="cost_center" list="cc-list"></td>
+            <td><button type="button" class="link" data-remove-row title="Удалить строку">✕</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <datalist id="category-list">{% for c in categories %}<option value="{{ c.name }}">{% endfor %}</datalist>
+    <datalist id="cc-list">{% for c in cost_centers %}<option value="{{ c.name }}">{% endfor %}</datalist>
+    <div class="row">
+      <button type="button" class="secondary" data-add-row="#manual-rows">Добавить строку</button>
+      <button type="submit">Проверить и показать предпросмотр</button>
+    </div>
+  </form>
+
+  <form id="tab-json" hx-post="/web/uploads/manual/json" hx-target="#upload-result" class="stack" hidden>
+    <p class="muted small">Формат: <code>kind</code> — <code>fact</code> или <code>budget</code>;
+      <code>rows</code> — строки с полями <code>period</code>, <code>category</code>, <code>amount</code>,
+      <code>cost_center</code> (необязательно). Ниже — пример, его можно отредактировать.</p>
+    <textarea name="payload" rows="12" spellcheck="false">{{ example_json }}</textarea>
+    <div class="row"><button type="submit">Проверить и показать предпросмотр</button></div>
+  </form>
+</section>
+<script src="/static/app.js" defer></script>
+{% endblock %}

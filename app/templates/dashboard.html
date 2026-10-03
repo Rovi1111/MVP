@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "partials/period_inputs.html" import period_inputs, mode_select, chart_filters %}
+{% block title %}Сравнение периодов — {{ app_name }}{% endblock %}
+{% block head %}<script src="/assets/plotly.min.js" defer></script><script src="/static/app.js" defer></script>{% endblock %}
+{% block content %}
+<h1>Сравнение периодов</h1>
+{% if not bounds.fact_to %}
+<p class="alert warn">Факт ещё не загружен. {% if can(user, Permission.DATA_MANUAL) %}<a href="/web/data">Загрузить данные</a>{% endif %}</p>
+{% else %}
+<p class="muted">Данные загружены за {{ bounds.fact_from | ru_date }} — {{ bounds.fact_to | ru_date }}.</p>
+{% endif %}
+
+<form id="analysis-form" class="card stack" hx-get="/web/dashboard/result" hx-target="#result"
+      hx-indicator="#result-indicator" {% if bounds.fact_to %}hx-trigger="submit, load"{% endif %}>
+  <div class="row">
+    {{ mode_select(modes, values) }}
+    {{ period_inputs("p1", "Период 1", values, years, month_names) }}
+    {{ period_inputs("p2", "Период 2", values, years, month_names) }}
+  </div>
+  <div class="row">
+    <label>Категория <input name="category" placeholder="часть названия"></label>
+    <label>ЦФО
+      <select name="cost_center_id"><option value="">Все</option>
+        {% for c in cost_centers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Сортировка
+      <select name="sort">
+        <option value="delta">Изменение</option><option value="pct_change">Изменение, %</option>
+        <option value="amount_p1">Сумма периода 1</option><option value="amount_p2">Сумма периода 2</option>
+        <option value="category">Категория</option>
+      </select>
+    </label>
+    <label>Порядок
+      <select name="order"><option value="desc">По убыванию</option><option value="asc">По возрастанию</option></select>
+    </label>
+    <label>Шаг графика
+      <select name="granularity">
+        <option value="month">Месяцы</option><option value="day">Дни</option>
+        <option value="quarter">Кварталы</option><option value="year">Годы</option>
+      </select>
+    </label>
+  </div>
+  <div class="row checks">
+    <span class="muted small">Тип изменения:</span>
+    {% for code, title in change_types.items() %}
+    <label class="inline"><input type="checkbox" name="change_type" value="{{ code }}"> {{ title }}</label>
+    {% endfor %}
+  </div>
+  {{ chart_filters(categories) }}
+  <div class="row"><button type="submit">Сравнить</button>
+    <span id="result-indicator" class="htmx-indicator muted">Считаем…</span></div>
+</form>
+<div id="result"></div>
+{% endblock %}

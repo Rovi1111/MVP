@@ -1,0 +1,23 @@
+[project]
+name = "expense-tracker"
+version = "0.1.0"
+description = "Учёт расходов: сравнение периодов, план-факт, AI-анализ"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# B008: Depends(...) в значениях по умолчанию — штатная идиома FastAPI
+ignore = ["B008", "SIM108"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore:Using `httpx` with `starlette.testclient`"]
+
+[tool.ruff.lint.isort]
+# каталог миграций ./alembic не должен считаться локальным пакетом
+known-third-party = ["alembic"]

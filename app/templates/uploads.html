@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Загрузки — {{ app_name }}{% endblock %}
+{% block content %}
+<h1>История загрузок</h1>
+<div class="table-wrap card">
+  <table>
+    <thead><tr><th>Дата</th><th>Тип</th><th>Версия</th><th>Источник</th><th>Автор</th>
+      <th class="num">Строк</th><th class="num">Сумма</th><th>Статус</th><th></th></tr></thead>
+    <tbody>
+      {% for u in uploads %}
+      <tr>
+        <td>{{ u.created_at | ru_date }}</td><td>{{ u.kind | label }}</td><td>{{ u.version or "—" }}</td>
+        <td>{{ u.file_name or (u.source | label) }}</td><td>{{ u.author.login }}</td>
+        <td class="num">{{ u.row_count }}</td><td class="num">{{ u.total | money }}</td>
+        <td><span class="badge {{ u.status }}">{{ u.status | label }}</span></td>
+        <td><a href="/web/uploads/{{ u.id }}">Открыть</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="muted">Загрузок пока нет.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  {# HTMX по умолчанию не вставляет ответы 4xx/5xx — разрешаем, чтобы показывать ошибки #}
+  <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
+  <script src="/static/htmx.min.js" defer></script>
+  {% block head %}{% endblock %}
+</head>
+{# hx-headers: HTMX добавляет CSRF-токен ко всем своим запросам #}
+<body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
+  <header class="topbar">
+    <a class="brand" href="/web/">{{ app_name }}</a>
+    {% if user %}
+    <nav>
+      {% for item in nav_for(user) %}
+      <a href="{{ item.url }}" {% if request.url.path == item.url %}class="active"{% endif %}>{{ item.title }}</a>
+      {% endfor %}
+    </nav>
+    <div class="userbox">
+      <span title="{{ user.organization.name }}">{{ user.full_name or user.login }} · {{ user.role | role_label }}</span>
+      <form method="post" action="/web/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="link" type="submit">Выйти</button>
+      </form>
+    </div>
+    {% endif %}
+  </header>
+  <main>
+    <div id="flash"></div>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

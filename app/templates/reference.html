@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Справочники — {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Справочники</h1>
+<div class="grid2">
+  {% for s in sections %}
+    {% with kind=s.kind, title=s.title, items=s["items"] %}{% include "partials/reference_section.html" %}{% endwith %}
+  {% endfor %}
+</div>
+{% include "partials/aliases.html" %}
+{% endblock %}

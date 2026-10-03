@@ -1,0 +1,11 @@
+<div id="ai-output">
+  {% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+  {% if analysis.ai_text %}
+  <div class="ai-text" id="ai-text">{{ analysis.ai_text }}</div>
+  <div class="row">
+    <button type="button" class="secondary" data-copy="#ai-text">Скопировать</button>
+  </div>
+  {% endif %}
+  <p class="muted small">Расчёт сохранён: <a href="/web/analyses/{{ analysis.id }}">{{ analysis.title }}</a>
+    {% if error %}— AI-анализ можно запустить повторно со страницы анализа.{% endif %}</p>
+</div>

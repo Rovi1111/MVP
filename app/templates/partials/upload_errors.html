@@ -1,0 +1,13 @@
+<section class="card">
+  <p class="alert error">{{ message }}</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Строка</th><th>Колонка</th><th>Проблема</th></tr></thead>
+      <tbody>
+        {% for e in errors %}
+        <tr><td>{{ e.row }}</td><td>{{ e.column }}</td><td>{{ e.problem }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>

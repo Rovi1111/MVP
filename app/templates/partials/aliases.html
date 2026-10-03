@@ -1,0 +1,15 @@
+<section class="card" id="aliases">
+  <h2>Запомненные сопоставления статей</h2>
+  <table>
+    <thead><tr><th>Название из файла</th><th>Категория</th><th></th></tr></thead>
+    <tbody>
+      {% for a in aliases %}
+      <tr><td>{{ a.alias }}</td><td>{{ a.category.name }}</td>
+        <td><button class="link danger-text" hx-post="/web/reference/aliases/{{ a.id }}/delete"
+                    hx-target="#aliases" hx-swap="outerHTML">Удалить</button></td></tr>
+      {% else %}
+      <tr><td colspan="3" class="muted">Сопоставлений пока нет — они появляются при загрузке файлов с неизвестными статьями.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>

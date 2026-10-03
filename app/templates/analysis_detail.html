@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "partials/period_inputs.html" import chart_block %}
+{% block title %}{{ analysis.title }} — {{ app_name }}{% endblock %}
+{% block head %}<script src="/assets/plotly.min.js" defer></script><script src="/static/app.js" defer></script>{% endblock %}
+{% block content %}
+<h1>{{ analysis.title }}</h1>
+<p class="muted">Сохранён {{ analysis.created_at | ru_date }}, автор: {{ analysis.author.login }}.
+  Это снимок на момент расчёта — последующие загрузки данных его не меняют.</p>
+{% if can(user, Permission.REPORTS) %}
+<section class="card">
+  <h2>Отчёт</h2>
+  <div class="row">
+    <a class="button" href="/api/analyses/{{ analysis.id }}/export?format=pdf">Скачать PDF</a>
+    <a class="button secondary" href="/api/analyses/{{ analysis.id }}/export?format=xlsx">Скачать Excel</a>
+    <form class="row" hx-post="/web/analyses/{{ analysis.id }}/email" hx-target="#email-result" hx-disabled-elt="find button">
+      <label>Отправить на email <input type="email" name="to" placeholder="name@example.ru" required {% if not smtp_configured %}disabled{% endif %}></label>
+      <label class="inline"><input type="checkbox" name="formats" value="pdf" checked {% if not smtp_configured %}disabled{% endif %}> PDF</label>
+      <label class="inline"><input type="checkbox" name="formats" value="xlsx" {% if not smtp_configured %}disabled{% endif %}> Excel</label>
+      <button type="submit" class="secondary" {% if not smtp_configured %}disabled title="SMTP не настроен"{% endif %}>Отправить</button>
+    </form>
+  </div>
+  {% if not smtp_configured %}
+  <p class="muted small">Отправка недоступна: не настроен почтовый сервер (SMTP).
+    {% if can(user, Permission.SETTINGS_MANAGE) %}<a href="/web/settings">Настроить</a>{% else %}Обратитесь к администратору.{% endif %}</p>
+  {% endif %}
+  <div id="email-result"></div>
+</section>
+{% endif %}
+
+{% if snapshot.comparison %}
+  {% with result=snapshot.comparison, pies=[charts.pie1, charts.pie2], stacked=charts.stacked, ai=None %}
+    {% include "partials/comparison_result.html" %}
+  {% endwith %}
+{% endif %}
+{% if snapshot.plan_fact %}
+  {% if snapshot.comparison %}<h2>План-факт за {{ snapshot.plan_fact.params.period.label }}</h2>{% endif %}
+  {% with result=snapshot.plan_fact, chart=charts.plan_fact, ai=None %}
+    {% include "partials/plan_fact_result.html" %}
+  {% endwith %}
+{% elif snapshot.comparison %}
+<p class="alert warn">План-факт в отчёт не вошёл: на момент расчёта бюджет за второй период не был загружен.</p>
+{% endif %}
+
+<section class="card">
+  <h2>AI-заключение</h2>
+  {% if templates %}
+  <form class="row" hx-post="/web/analyses/{{ analysis.id }}/ai" hx-target="#ai-output" hx-swap="outerHTML"
+        hx-indicator="#ai-indicator" hx-disabled-elt="find button">
+    <label>Шаблон
+      <select name="template_id">
+        {% for t in templates %}<option value="{{ t.id }}" {% if t.id == analysis.prompt_template_id %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">{{ "Сформировать заново" if analysis.ai_text else "Запустить AI-анализ" }}</button>
+  </form>
+  <p id="ai-indicator" class="htmx-indicator muted">Модель готовит заключение — это может занять до нескольких минут…</p>
+  {% endif %}
+  {% with error=None %}{% include "partials/ai_output.html" %}{% endwith %}
+</section>
+{% endblock %}

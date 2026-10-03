@@ -1,0 +1,29 @@
+<section class="card" id="prompt-templates">
+  <h2>Шаблоны промптов</h2>
+  <p class="muted small">Плейсхолдеры:
+    {% for name, description in placeholders.items() %}<code>{{ "{" ~ name ~ "}" }}</code> — {{ description }}{{ "; " if not loop.last else "." }}{% endfor %}
+    Фигурную скобку как текст пишите удвоенной.</p>
+  {% for t in templates %}
+  <details {% if loop.length == 1 %}open{% endif %}>
+    <summary>{{ t.name }}{% if not t.is_active %} <span class="muted">(отключён)</span>{% endif %}</summary>
+    <form class="stack" hx-post="/web/settings/templates/{{ t.id }}" hx-target="#prompt-templates" hx-swap="outerHTML">
+      <label>Название <input name="name" value="{{ t.name }}" required maxlength="200"></label>
+      <textarea name="text" rows="12" required>{{ t.text }}</textarea>
+      <div class="row">
+        <label class="inline"><input type="checkbox" name="is_active" value="true" {% if t.is_active %}checked{% endif %}> Доступен для выбора</label>
+        <button type="submit">Сохранить</button>
+        <button type="button" class="danger" hx-post="/web/settings/templates/{{ t.id }}/delete"
+                hx-confirm="Удалить шаблон «{{ t.name }}»?" hx-target="#prompt-templates" hx-swap="outerHTML">Удалить</button>
+      </div>
+    </form>
+  </details>
+  {% endfor %}
+  <details>
+    <summary>Добавить шаблон</summary>
+    <form class="stack" hx-post="/web/settings/templates" hx-target="#prompt-templates" hx-swap="outerHTML">
+      <label>Название <input name="name" required maxlength="200"></label>
+      <textarea name="text" rows="8" required placeholder="Текст промпта с плейсхолдерами, например {data}"></textarea>
+      <div class="row"><button type="submit">Добавить</button></div>
+    </form>
+  </details>
+</section>

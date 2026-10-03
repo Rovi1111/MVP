@@ -1,0 +1,62 @@
+{# Поля одного периода; видимые поля зависят от выбранной детализации (data-mode) #}
+{% macro period_inputs(prefix, title, values, years, month_names) %}
+<fieldset class="period">
+  <legend>{{ title }}</legend>
+  <label data-mode="day">Дата <input type="date" name="{{ prefix }}_day" value="{{ values[prefix ~ '_day'] }}"></label>
+  <label data-mode="month">Месяц
+    <select name="{{ prefix }}_month">
+      {% for name in month_names %}
+      <option value="{{ loop.index }}" {% if values[prefix ~ '_month'] == loop.index|string %}selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label data-mode="quarter">Квартал
+    <select name="{{ prefix }}_quarter">
+      {% for q in range(1, 5) %}
+      <option value="{{ q }}" {% if values[prefix ~ '_quarter'] == q|string %}selected{% endif %}>{{ q }} кв.</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label data-mode="month quarter year">Год
+    <select name="{{ prefix }}_year">
+      {% for y in years %}
+      <option value="{{ y }}" {% if values[prefix ~ '_year'] == y|string %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label data-mode="range">С <input type="date" name="{{ prefix }}_from" value="{{ values[prefix ~ '_from'] }}"></label>
+  <label data-mode="range">По <input type="date" name="{{ prefix }}_to" value="{{ values[prefix ~ '_to'] }}"></label>
+</fieldset>
+{% endmacro %}
+
+{% macro mode_select(modes, values) %}
+<label>Детализация
+  <select name="mode" data-mode-select>
+    {% for code, title in modes.items() %}
+    <option value="{{ code }}" {% if values.mode == code %}selected{% endif %}>{{ title }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% endmacro %}
+
+{% macro chart_filters(categories) %}
+<details>
+  <summary>Отбор данных для диаграмм</summary>
+  <div class="row">
+    <label>Категории (Cmd/Ctrl — несколько)
+      <select name="chart_categories" multiple size="5">
+        {% for c in categories %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Сумма от <input name="amount_min" inputmode="decimal" placeholder="без ограничения"></label>
+    <label>Сумма до <input name="amount_max" inputmode="decimal" placeholder="без ограничения"></label>
+  </div>
+</details>
+{% endmacro %}
+
+{% macro chart_block(chart, id) %}
+<div class="chart-box">
+  <div class="chart" id="{{ id }}" data-figure="{{ chart.figure }}"></div>
+  <a class="small" href="{{ chart.png_url }}" download>Скачать PNG</a>
+</div>
+{% endmacro %}

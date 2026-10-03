@@ -1,0 +1,112 @@
+{# Карточка загрузки: предпросмотр, сопоставление статей или итог — по статусу #}
+<section class="card" id="upload-card">
+  <h2>{{ info.kind | label }} · {{ info.file_name or (info.source | label) }}
+    {% if info.version %}· версия {{ info.version }}{% endif %}
+    <span class="badge {{ info.status }}">{{ info.status | label }}</span></h2>
+
+  {% if info.status == "active" %}
+  <p class="alert ok">Данные записаны: {{ info.row_count }} строк на сумму {{ info.total | money }}.</p>
+  {% elif info.status == "cancelled" %}
+  <p class="alert warn">Загрузка отменена, данные не участвуют в расчётах.</p>
+  {% elif info.status == "superseded" %}
+  <p class="alert warn">Загрузка полностью заменена более новой версией.</p>
+  {% endif %}
+
+  <p class="muted">
+    Строк в источнике: {{ info.source_rows }}, после суммирования дублей: {{ info.row_count }}.
+    Период: {{ info.date_from | ru_date }} — {{ info.date_to | ru_date }}.
+    Итого: <strong>{{ info.total | money }}</strong>.
+    Автор: {{ info.author }}, {{ info.created_at | ru_date }}.
+  </p>
+
+  {% if info.replaces and info.replaces.records %}
+  <p class="alert warn">Файл заменит ранее загруженный факт за {{ info.replaces.months | join(", ") }}:
+    {{ info.replaces.records }} записей (включая ручной ввод) будут сняты с учёта и останутся в истории.</p>
+  {% endif %}
+  {% if info.new_cost_centers %}
+  <p class="muted">Будут добавлены ЦФО: {{ info.new_cost_centers | join(", ") }}.</p>
+  {% endif %}
+
+  {% if info.unmatched %}
+    {% if can(user, Permission.REFERENCE_MANAGE) %}
+    <h3>Сопоставление статей</h3>
+    <p class="muted">Этих статей нет в справочнике. Выберите категорию или создайте новую — выбор запомнится.</p>
+    <form hx-post="/web/uploads/{{ info.id }}/mapping" hx-target="#upload-card" hx-swap="outerHTML">
+      <table>
+        <thead><tr><th>Статья из файла</th><th>Категория</th><th>Название новой категории</th></tr></thead>
+        <tbody>
+          {% for name in info.unmatched %}
+          <tr>
+            <td>{{ name }}<input type="hidden" name="name" value="{{ name }}"></td>
+            <td>
+              <select name="target">
+                <option value="new">Создать новую</option>
+                {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+              </select>
+            </td>
+            <td><input name="new_name" value="{{ name }}"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="row">
+        <button type="submit">Сопоставить и записать данные</button>
+        <button type="button" class="danger" hx-post="/web/uploads/{{ info.id }}/cancel"
+                hx-target="#upload-card" hx-swap="outerHTML">Отменить загрузку</button>
+      </div>
+    </form>
+    {% else %}
+    <p class="alert warn">В данных есть статьи, которых нет в справочнике: {{ info.unmatched | join(", ") }}.
+      {% if info.status == "pending_mapping" %}Загрузка ожидает сопоставления руководителем или администратором
+      и пока не участвует в расчётах.{% else %}После подтверждения загрузка будет ждать сопоставления
+      руководителем или администратором.{% endif %}</p>
+    {% endif %}
+  {% endif %}
+
+  <div class="grid2">
+    <div class="table-wrap">
+      <h3>Итоги по статьям</h3>
+      <table>
+        <thead><tr><th>Статья</th><th class="num">Сумма</th></tr></thead>
+        <tbody>
+          {% for item in info.by_category %}
+          <tr><td>{{ item.category }}</td><td class="num">{{ item.amount | money }}</td></tr>
+          {% endfor %}
+          <tr class="total"><td>Итого</td><td class="num">{{ info.total | money }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <h3>Первые строки</h3>
+      <table>
+        <thead><tr><th>Дата</th><th>Статья</th><th>ЦФО</th><th class="num">Сумма</th></tr></thead>
+        <tbody>
+          {% for row in info.sample %}
+          <tr>
+            <td>{{ row.date | ru_date }}{% if row.grain != "day" %} <span class="muted small">({{ row.grain | label }})</span>{% endif %}</td>
+            <td>{{ row.category }}</td><td>{{ row.cost_center or "—" }}</td>
+            <td class="num">{{ row.amount | money }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="row">
+    {% if info.status == "preview" %}
+    <button hx-post="/web/uploads/{{ info.id }}/confirm" hx-target="#upload-card" hx-swap="outerHTML">
+      {% if info.unmatched and not can(user, Permission.REFERENCE_MANAGE) %}Отправить на сопоставление{% else %}Подтвердить загрузку{% endif %}
+    </button>
+    {% elif info.status == "pending_mapping" and not info.unmatched %}
+    <button hx-post="/web/uploads/{{ info.id }}/confirm" hx-target="#upload-card" hx-swap="outerHTML">Записать данные</button>
+    {% endif %}
+    {% if info.status == "preview" or (info.status == "pending_mapping" and not can(user, Permission.REFERENCE_MANAGE)) %}
+    <button class="danger" hx-post="/web/uploads/{{ info.id }}/cancel" hx-target="#upload-card" hx-swap="outerHTML">Отменить</button>
+    {% elif info.status == "active" and can(user, Permission.REFERENCE_MANAGE) %}
+    <button class="danger" hx-post="/web/uploads/{{ info.id }}/cancel" hx-target="#upload-card" hx-swap="outerHTML"
+            hx-confirm="Снять загрузку с учёта? Данные, которые она заменила, автоматически не восстановятся.">Снять с учёта</button>
+    {% endif %}
+    <a class="button secondary" href="/web/uploads">История загрузок</a>
+  </div>
+</section>

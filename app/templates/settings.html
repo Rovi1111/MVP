@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Настройки — {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Настройки</h1>
+<form class="card stack" hx-post="/web/settings" hx-target="#settings-result">
+  <h2>AI-анализ (Ollama)</h2>
+  <div class="row">
+    <label>Адрес Ollama <input name="ollama_url" value="{{ settings.ollama_url }}" size="32" required></label>
+    <label>Модель <input name="ollama_model" value="{{ settings.ollama_model }}" required></label>
+    <label>Таймаут, с <input name="ollama_timeout" value="{{ '%g' | format(settings.ollama_timeout) }}" size="6" inputmode="decimal" required></label>
+    <button type="button" class="secondary" hx-post="/web/settings/ollama-check" hx-target="#settings-result">Проверить соединение</button>
+  </div>
+  <label class="inline"><input type="checkbox" name="ai_auto_run" {% if settings.ai_auto_run %}checked{% endif %}>
+    Запускать AI-анализ автоматически после каждого расчёта</label>
+  <p class="muted small">Проверка использует сохранённые значения: сначала сохраните изменения.</p>
+
+  <h2>План-факт</h2>
+  <label class="inline">Порог существенного отклонения, %
+    <input name="plan_fact_threshold" value="{{ settings.plan_fact_threshold }}" size="6" inputmode="decimal" required></label>
+
+  <h2>Почта (SMTP) для отправки отчётов</h2>
+  <div class="row">
+    <label>Сервер <input name="smtp_host" value="{{ settings.smtp_host }}" placeholder="smtp.example.ru"></label>
+    <label>Порт <input name="smtp_port" value="{{ settings.smtp_port }}" size="6" inputmode="numeric"></label>
+    <label>Пользователь <input name="smtp_user" value="{{ settings.smtp_user }}" autocomplete="off"></label>
+    <label>Пароль <input type="password" name="smtp_password" autocomplete="new-password"
+      placeholder="{{ 'сохранён — оставьте пустым' if settings.smtp_password else '' }}"></label>
+    <label>Адрес отправителя <input name="smtp_from" value="{{ settings.smtp_from }}" placeholder="reports@example.ru"></label>
+  </div>
+  <label class="inline"><input type="checkbox" name="smtp_tls" {% if settings.smtp_tls %}checked{% endif %}> Шифрование STARTTLS</label>
+
+  <div class="row"><button type="submit">Сохранить настройки</button></div>
+  <div id="settings-result"></div>
+</form>
+{% include "partials/prompt_templates.html" %}
+{% endblock %}

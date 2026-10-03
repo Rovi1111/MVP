@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "partials/period_inputs.html" import period_inputs, mode_select, chart_filters %}
+{% block title %}План-факт — {{ app_name }}{% endblock %}
+{% block head %}<script src="/assets/plotly.min.js" defer></script><script src="/static/app.js" defer></script>{% endblock %}
+{% block content %}
+<h1>План-факт</h1>
+{% if not bounds.budget_versions %}
+<p class="alert warn">Бюджет ещё не загружен. {% if can(user, Permission.DATA_MANUAL) %}<a href="/web/data">Загрузить бюджет</a>{% endif %}</p>
+{% endif %}
+<form id="analysis-form" class="card stack" hx-get="/web/plan-fact/result" hx-target="#result"
+      hx-indicator="#result-indicator" {% if bounds.budget_versions and bounds.fact_to %}hx-trigger="submit, load"{% endif %}>
+  <div class="row">
+    {{ mode_select(modes, values) }}
+    {{ period_inputs("p", "Период", values, years, month_names) }}
+    <label>Версия бюджета
+      <select name="budget_upload_id">
+        <option value="">Последняя</option>
+        {% for v in bounds.budget_versions %}
+        <option value="{{ v.upload_id }}">Версия {{ v.version }}{% if v.file_name %} · {{ v.file_name }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  <div class="row">
+    <label>ЦФО
+      <select name="cost_center_id"><option value="">Все</option>
+        {% for c in cost_centers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Порог отклонения, % <input name="threshold_pct" inputmode="decimal" placeholder="из настроек" size="10"></label>
+    <label class="inline"><input type="checkbox" name="by_cost_center"> В разрезе ЦФО</label>
+  </div>
+  {{ chart_filters(categories) }}
+  <div class="row"><button type="submit">Рассчитать</button>
+    <span id="result-indicator" class="htmx-indicator muted">Считаем…</span></div>
+</form>
+<div id="result"></div>
+{% endblock %}

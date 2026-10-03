@@ -1,0 +1,30 @@
+<section class="card" id="ref-{{ kind }}">
+  <h2>{{ title }}</h2>
+  <form class="row" hx-post="/web/reference/{{ kind }}" hx-target="#ref-{{ kind }}" hx-swap="outerHTML">
+    <input name="name" placeholder="Название" required maxlength="200">
+    <button type="submit">Добавить</button>
+  </form>
+  <table>
+    <tbody>
+      {% for item in items %}
+      <tr {% if not item.is_active %}class="inactive"{% endif %}>
+        <td>
+          <form class="row" hx-post="/web/reference/{{ kind }}/{{ item.id }}" hx-target="#ref-{{ kind }}" hx-swap="outerHTML">
+            <input name="name" value="{{ item.name }}" required maxlength="200">
+            <button class="secondary" type="submit">Сохранить</button>
+          </form>
+        </td>
+        <td class="actions">
+          <button class="link" hx-post="/web/reference/{{ kind }}/{{ item.id }}"
+                  hx-vals='{"is_active": "{{ "false" if item.is_active else "true" }}"}'
+                  hx-target="#ref-{{ kind }}" hx-swap="outerHTML">{{ "Отключить" if item.is_active else "Включить" }}</button>
+          <button class="link danger-text" hx-post="/web/reference/{{ kind }}/{{ item.id }}/delete"
+                  hx-confirm="Удалить «{{ item.name }}»?" hx-target="#ref-{{ kind }}" hx-swap="outerHTML">Удалить</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td class="muted">Справочник пуст.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>

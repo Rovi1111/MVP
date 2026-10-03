@@ -1,0 +1,22 @@
+{# Панель AI-анализа под результатом расчёта. Параметры берутся из формы #analysis-form #}
+{% if ai %}
+<section class="card" id="ai-panel">
+  <h2>AI-анализ</h2>
+  <p class="muted small">В модель отправляются только итоговые цифры (агрегаты), без отдельных строк.
+    Расчёт сохраняется в разделе «Анализы».</p>
+  <div class="row" id="ai-controls">
+    <label>Шаблон
+      <select name="template_id">
+        {% for t in ai.templates %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <button hx-post="/web/analyses" hx-include="#analysis-form, #ai-controls" hx-target="#ai-output"
+            hx-vals='{"kind": "{{ ai.kind }}", "action": "ai"}' hx-indicator="#ai-indicator"
+            hx-disabled-elt="this" {% if ai.auto %}hx-trigger="click, load"{% endif %}>Запустить AI-анализ</button>
+    <button class="secondary" hx-post="/web/analyses" hx-include="#analysis-form" hx-target="#ai-output"
+            hx-vals='{"kind": "{{ ai.kind }}", "action": "save"}'>Сохранить расчёт без AI</button>
+  </div>
+  <p id="ai-indicator" class="htmx-indicator muted">Модель готовит заключение — это может занять до нескольких минут…</p>
+  <div id="ai-output"></div>
+</section>
+{% endif %}

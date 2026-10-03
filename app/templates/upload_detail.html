@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Загрузка №{{ info.id }} — {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Загрузка №{{ info.id }}</h1>
+{% include "partials/upload_card.html" %}
+{% endblock %}
