@@ -14,7 +14,6 @@ from app.services.analytics import (
     pct,
     plan_fact,
     series_by_period,
-    shares,
     sort_rows,
 )
 
@@ -272,16 +271,6 @@ def test_plan_fact_empty():
 
 
 # ---------- ряды для графиков ----------
-
-
-def test_shares():
-    assert shares({"A": D("75"), "B": D("25"), "C": D("0")}) == [
-        {"category": "A", "amount": 75.0, "share": 75.0},
-        {"category": "B", "amount": 25.0, "share": 25.0},
-    ]
-    assert shares({}) == []
-    assert shares({"A": D("0"), "B": D("0")}) == []  # все суммы нулевые — «нет данных»
-    assert shares({"A": D("-5")}) == []
 
 
 @pytest.mark.parametrize(

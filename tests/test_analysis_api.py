@@ -35,7 +35,6 @@ def test_comparison(client):
     ]  # fmt: skip
     assert (data["total_p1"], data["total_p2"], data["total_delta"]) == (190.0, 205.0, 15.0)
     assert data["params"]["period1"]["label"] == "январь 2025"
-    assert [s["category"] for s in data["shares_p1"]] == ["Аренда", "Реклама"]
     assert data["warnings"] == []
 
 

@@ -28,17 +28,11 @@
 {% endif %}
 
 {% if snapshot.comparison %}
-  {% with result=snapshot.comparison, pies=[charts.pie1, charts.pie2], stacked=charts.stacked, ai=None %}
+  {% with result=snapshot.comparison, ai=None %}
     {% include "partials/comparison_result.html" %}
   {% endwith %}
-{% endif %}
-{% if snapshot.plan_fact %}
-  {% if snapshot.comparison %}<h2>План-факт за {{ snapshot.plan_fact.params.period.label }}</h2>{% endif %}
-  {% with result=snapshot.plan_fact, chart=charts.plan_fact, ai=None %}
-    {% include "partials/plan_fact_result.html" %}
-  {% endwith %}
-{% elif snapshot.comparison %}
-<p class="alert warn">План-факт в отчёт не вошёл: на момент расчёта бюджет за второй период не был загружен.</p>
+{% else %}
+<p class="alert warn">Этот анализ сохранён в старом формате и больше не отображается.</p>
 {% endif %}
 
 <section class="card">

@@ -4,15 +4,15 @@
 <h1>Сохранённые анализы</h1>
 <div class="table-wrap card">
   <table>
-    <thead><tr><th>Дата</th><th>Тип</th><th>Название</th><th>Автор</th><th>AI-заключение</th><th></th></tr></thead>
+    <thead><tr><th>Дата</th><th>Название</th><th>Автор</th><th>AI-заключение</th><th></th></tr></thead>
     <tbody>
       {% for a in analyses %}
-      <tr><td>{{ a.created_at | ru_date }}</td><td>{{ a.kind | label }}</td><td>{{ a.title }}</td>
+      <tr><td>{{ a.created_at | ru_date }}</td><td>{{ a.title }}</td>
         <td>{{ a.author.login }}</td><td>{{ "есть" if a.ai_text else "—" }}</td>
         <td><a href="/web/analyses/{{ a.id }}">Открыть</a></td></tr>
       {% else %}
-      <tr><td colspan="6" class="muted">Сохранённых анализов пока нет. Они появляются после запуска AI-анализа
-        или кнопки «Сохранить расчёт» на страницах сравнения и план-факта.</td></tr>
+      <tr><td colspan="5" class="muted">Сохранённых анализов пока нет. Они появляются после запуска AI-анализа
+        или кнопки «Сохранить расчёт» на странице «Анализ расходов».</td></tr>
       {% endfor %}
     </tbody>
   </table>

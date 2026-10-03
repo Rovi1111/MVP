@@ -11,24 +11,26 @@
   {% block head %}{% endblock %}
 </head>
 {# hx-headers: HTMX добавляет CSRF-токен ко всем своим запросам #}
-<body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
-  <header class="topbar">
-    <a class="brand" href="/web/">{{ app_name }}</a>
-    {% if user %}
+<body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}' {% if user %}class="with-sidebar"{% endif %}>
+  {% if user %}
+  <aside class="sidebar">
+    <a class="brand" href="/web/dashboard">{{ app_name }}</a>
+    <div class="org muted small">{{ user.organization.name }}</div>
     <nav>
       {% for item in nav_for(user) %}
-      <a href="{{ item.url }}" {% if request.url.path == item.url %}class="active"{% endif %}>{{ item.title }}</a>
+      <a href="{{ item.url }}" {% if request.url.path.startswith(item.url) %}class="active"{% endif %}>{{ item.title }}</a>
       {% endfor %}
     </nav>
     <div class="userbox">
-      <span title="{{ user.organization.name }}">{{ user.full_name or user.login }} · {{ user.role | role_label }}</span>
+      <span>{{ user.full_name or user.login }}</span>
+      <span class="muted small">{{ user.role | role_label }}</span>
       <form method="post" action="/web/logout">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="link" type="submit">Выйти</button>
       </form>
     </div>
-    {% endif %}
-  </header>
+  </aside>
+  {% endif %}
   <main>
     <div id="flash"></div>
     {% block content %}{% endblock %}

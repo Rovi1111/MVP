@@ -93,8 +93,6 @@ def run_comparison(
     data["all_rows"] = data["rows"]  # полные данные: для диаграмм и AI-анализа
     data["rows"] = [row.to_dict() for row in filtered]
     data["filtered"] = len(filtered) != len(result.rows)
-    data["shares_p1"] = analytics.shares({r.category: r.amount_p1 for r in result.rows})
-    data["shares_p2"] = analytics.shares({r.category: r.amount_p2 for r in result.rows})
     warnings = [
         _coarse_warning(rows1, p1, "Факт"),
         _coarse_warning(rows2, p2, "Факт"),
@@ -195,6 +193,55 @@ def run_series(
     rows = ExpenseRepository(db, user.org_id).rows(selected.start, selected.end, cost_center_id)
     data = analytics.series_by_period(((r.date, r.category, r.amount) for r in rows), granularity)
     return {"period": _period_dict(selected), **data}
+
+
+def run_fact_budget(
+    db: Session,
+    user: User,
+    period: str,
+    *,
+    cost_center_id: int | None = None,
+    budget_upload_id: int | None = None,
+    categories: list[str] | None = None,
+    amount_min: Decimal | None = None,
+    amount_max: Decimal | None = None,
+) -> dict:
+    """Данные диаграммы «факт и бюджет»: факт по месяцам и категориям, линия бюджета.
+
+    Период расширяется до целых месяцев. Отбор по категориям и диапазону сумм
+    (сумма категории за весь период) применяется и к факту, и к бюджету.
+    Если бюджет не загружен, линии нет, а столбцы факта остаются.
+    """
+    selected = whole_months(parse_period_arg(period, "Период"))
+    _cost_center(db, user, cost_center_id)
+    fact = ExpenseRepository(db, user.org_id).rows(selected.start, selected.end, cost_center_id)
+    try:
+        version = _budget_version(db, user, budget_upload_id)
+    except InvalidDataError:
+        version = None
+    budget = (
+        BudgetRepository(db, user.org_id).rows(
+            version.id, selected.start, selected.end, cost_center_id
+        )
+        if version
+        else []
+    )
+    if categories or amount_min is not None or amount_max is not None:
+        totals = analytics.sum_by_category((r.category, r.amount) for r in fact)
+        keep = analytics.filter_totals(totals, categories, amount_min, amount_max).keys()
+        fact = [r for r in fact if r.category in keep]
+        budget = [r for r in budget if r.category in keep]
+    data = analytics.fact_budget_series(
+        ((r.date, r.category, r.amount) for r in fact),
+        ((r.date, r.grain, r.amount) for r in budget) if version else None,
+        selected.start,
+        selected.end,
+    )
+    return {
+        "period": _period_dict(selected),
+        "budget_version": version.version if version else None,
+        **data,
+    }
 
 
 def data_bounds(db: Session, user: User) -> dict:

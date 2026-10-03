@@ -47,16 +47,12 @@
   {% endif %}
 </section>
 
+{% if chart %}
 <section class="card">
-  <h2>Распределение по категориям</h2>
-  <div class="grid2">
-    {{ chart_block(pies[0], "pie-1") }}
-    {{ chart_block(pies[1], "pie-2") }}
-  </div>
+  <h2>Факт и бюджет по месяцам</h2>
+  <p class="muted small">Столбцы — фактические расходы по статьям, линия — бюджет.</p>
+  {{ chart_block(chart, "fact-budget") }}
 </section>
-<section class="card">
-  <h2>Динамика по периодам</h2>
-  {{ chart_block(stacked, "stacked") }}
-</section>
+{% endif %}
 
 {% include "partials/ai_panel.html" %}

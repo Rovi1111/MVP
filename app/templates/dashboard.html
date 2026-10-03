@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% from "partials/period_inputs.html" import period_inputs, mode_select, chart_filters %}
-{% block title %}Сравнение периодов — {{ app_name }}{% endblock %}
+{% block title %}Анализ расходов — {{ app_name }}{% endblock %}
 {% block head %}<script src="/assets/plotly.min.js" defer></script><script src="/static/app.js" defer></script>{% endblock %}
 {% block content %}
-<h1>Сравнение периодов</h1>
+<h1>Анализ расходов</h1>
 {% if not bounds.fact_to %}
 <p class="alert warn">Факт ещё не загружен. {% if can(user, Permission.DATA_MANUAL) %}<a href="/web/data">Загрузить данные</a>{% endif %}</p>
 {% else %}
@@ -34,10 +34,12 @@
     <label>Порядок
       <select name="order"><option value="desc">По убыванию</option><option value="asc">По возрастанию</option></select>
     </label>
-    <label>Шаг графика
-      <select name="granularity">
-        <option value="month">Месяцы</option><option value="day">Дни</option>
-        <option value="quarter">Кварталы</option><option value="year">Годы</option>
+    <label>Бюджет на диаграмме
+      <select name="budget_upload_id">
+        <option value="">Последняя версия</option>
+        {% for v in bounds.budget_versions %}
+        <option value="{{ v.upload_id }}">Версия {{ v.version }}{% if v.file_name %} · {{ v.file_name }}{% endif %}</option>
+        {% endfor %}
       </select>
     </label>
   </div>
@@ -48,6 +50,7 @@
     {% endfor %}
   </div>
   {{ chart_filters(categories) }}
+  {% if bounds.fact_to and not bounds.budget_versions %}<p class="muted small">Бюджет не загружен — на диаграмме будет только факт.</p>{% endif %}
   <div class="row"><button type="submit">Сравнить</button>
     <span id="result-indicator" class="htmx-indicator muted">Считаем…</span></div>
 </form>

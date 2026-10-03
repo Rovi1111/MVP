@@ -52,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     admin.add_argument("--password", help="если не указан, будет запрошен интерактивно")
     admin.set_defaults(func=_cmd_create_admin)
 
-    demo = sub.add_parser("seed", help="создать демо-организации с данными")
+    demo = sub.add_parser("seed", help="создать демо-организацию с данными")
     demo.add_argument(
         "--password", help="пароль демо-пользователей (по умолчанию — из app/seed.py)"
     )

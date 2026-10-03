@@ -98,7 +98,7 @@ def create_app() -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def root():
-        return RedirectResponse("/web/")
+        return RedirectResponse("/web/dashboard")
 
     @app.get("/assets/plotly.min.js", include_in_schema=False)
     def plotly_js():

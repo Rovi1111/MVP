@@ -84,7 +84,7 @@ def test_excel_export_has_numeric_cells(client, analysis_id):
     assert f"report_{analysis_id}_" in response.headers["content-disposition"]
 
     workbook = load_workbook(io.BytesIO(response.content))
-    assert workbook.sheetnames == ["Параметры", "Сравнение", "План-факт", "AI-заключение"]
+    assert workbook.sheetnames == ["Параметры", "Сравнение", "Факт и бюджет", "AI-заключение"]
     rows = {row[0]: row for row in workbook["Сравнение"].iter_rows(min_row=2, values_only=True)}
     assert rows["Аренда"][1:5] == (100000, 180000, 80000, 80)
     assert rows["Реклама"][1] == 40000.55 and isinstance(
@@ -94,31 +94,37 @@ def test_excel_export_has_numeric_cells(client, analysis_id):
     assert rows["Итого"][1:4] == (140000.55, 205000, 64999.45)
     assert workbook["Сравнение"]["B2"].number_format == "#,##0.00"
 
-    plan = {row[0]: row for row in workbook["План-факт"].iter_rows(min_row=2, values_only=True)}
-    assert plan["Аренда"][2:7] == (150000, 180000, 30000, 20, "да")
+    chart = list(workbook["Факт и бюджет"].iter_rows(values_only=True))
+    assert chart[0] == ("Месяц", "Аренда", "Реклама", "Лицензии", "Факт всего", "Бюджет")
+    assert chart[1] == ("январь 2025", 100000, 40000.55, 0, 140000.55, 0)
+    assert chart[2] == ("февраль 2025", 180000, 0, 25000, 205000, 180000)
     assert "выросли" in workbook["AI-заключение"]["A2"].value
     params = dict(workbook["Параметры"].iter_rows(min_row=2, values_only=True))
     assert params["Организация"] == "Организация А" and params["Версия бюджета"] == "1"
 
 
-def test_pdf_export_with_charts(client, analysis_id):
+def test_pdf_export_with_single_chart(client, analysis_id):
     response = client.get(f"/api/analyses/{analysis_id}/export", params={"format": "pdf"})
     assert response.status_code == 200 and response.headers["content-type"] == "application/pdf"
     assert response.content.startswith(b"%PDF")
-    # 4 диаграммы (2 круговые, динамика, план-факт) встроены картинками
-    assert response.content.count(b"/Subtype /Image") >= 4
-    assert len(response.content) > 50_000
+    # одна диаграмма «факт и бюджет» (PNG с прозрачностью хранится как картинка + маска)
+    assert 1 <= response.content.count(b"/Subtype /Image") <= 2
+    assert len(response.content) > 30_000
 
 
-def test_pdf_for_plan_fact_only_without_ai(client):
-    created = client.post("/api/analyses", json={"kind": "plan_fact", "period": "2025-02"}).json()
-    response = client.get(f"/api/analyses/{created['id']}/export")
-    assert response.content.startswith(b"%PDF")
+def test_export_without_ai_and_budget(client_for):
+    client = client_for("b_admin")
+    load(client, "fact", [("2025-01", "Аренда", 10), ("2025-02", "Аренда", 20)])
+    created = client.post("/api/analyses", json={"period1": "2025-01", "period2": "2025-02"}).json()
+    assert created["result"]["plan_fact"] is None and created["result"]["chart"]["budget"] is None
+    assert client.get(f"/api/analyses/{created['id']}/export").content.startswith(b"%PDF")
     workbook = load_workbook(
         io.BytesIO(client.get(f"/api/analyses/{created['id']}/export?format=xlsx").content)
     )
-    assert workbook.sheetnames == ["Параметры", "План-факт", "AI-заключение"]
     assert workbook["AI-заключение"]["A2"].value == "AI-анализ не запускался"
+    assert [c.value for c in workbook["Факт и бюджет"][2]] == ["январь 2025", 10, 10, "нет"]
+    params = dict(workbook["Параметры"].iter_rows(min_row=2, values_only=True))
+    assert params["Версия бюджета"] == "бюджет не загружен"
 
 
 def test_export_errors_and_isolation(client, client_for, analysis_id):
@@ -252,9 +258,9 @@ def test_users_page(client, client_for):
 
 
 def test_menu_matches_permissions(client_for):
-    admin_menu = client_for("a_admin").get("/web/").text
-    employee_menu = client_for("a_employee").get("/web/").text
-    for title in ("Сравнение периодов", "План-факт", "Анализы", "Ввод данных", "Загрузки"):
+    admin_menu = client_for("a_admin").get("/web/dashboard").text
+    employee_menu = client_for("a_employee").get("/web/dashboard").text
+    for title in ("Анализ расходов", "Сохранённые анализы", "Ввод данных", "Загрузки"):
         assert title in admin_menu and title in employee_menu
     for title in ("Справочники", "Настройки", "Пользователи", "Журнал"):
         assert title in admin_menu and title not in employee_menu

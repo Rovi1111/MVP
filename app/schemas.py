@@ -1,6 +1,7 @@
 """Pydantic-схемы REST API."""
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -109,16 +110,18 @@ class UploadOut(BaseModel):
 
 
 class AnalysisCreate(BaseModel):
-    kind: str = Field(description="comparison или plan_fact")
-    period1: str | None = None
-    period2: str | None = None
-    period: str | None = Field(default=None, description="Для plan_fact")
+    kind: Literal["comparison"] = "comparison"
+    period1: str
+    period2: str
     cost_center_id: int | None = None
-    budget_upload_id: int | None = None
-    by_cost_center: bool = False
+    budget_upload_id: int | None = Field(default=None, description="Версия бюджета для диаграммы")
     category: str | None = None
     change_types: list[str] | None = None
-    granularity: str = "month"
+    sort: str = "delta"
+    order: Literal["asc", "desc"] = "desc"
+    chart_categories: list[str] | None = None
+    amount_min: Decimal | None = None
+    amount_max: Decimal | None = None
     run_ai: bool = False
     template_id: int | None = None
 

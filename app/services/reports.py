@@ -22,7 +22,6 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Image,
-    PageBreak,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -83,7 +82,7 @@ def _param_rows(record: Analysis, organization: str) -> list[tuple[str, str]]:
         ("Дата расчёта", f"{to_local(record.created_at):%d.%m.%Y %H:%M}"),
         ("Автор", record.author.login),
     ]
-    comparison, plan_fact = snapshot.get("comparison"), snapshot.get("plan_fact")
+    comparison = snapshot.get("comparison")
     if comparison:
         params = comparison["params"]
         for title, key in (("Период 1", "period1"), ("Период 2", "period2")):
@@ -95,13 +94,11 @@ def _param_rows(record: Analysis, organization: str) -> list[tuple[str, str]]:
             rows.append(
                 ("Фильтры таблицы", "; ".join(x for x in (params.get("category"), types) if x))
             )
-    if plan_fact:
-        params = plan_fact["params"]
-        rows.append(("Период план-факта", params["period"]["label"]))
-        rows.append(("Версия бюджета", str(params["budget_version"])))
-        rows.append(("Порог отклонения, %", f"{plan_fact['threshold_pct']:g}"))
-        if not comparison:
-            rows.append(("ЦФО", params.get("cost_center") or "Все"))
+    chart = snapshot.get("chart")
+    if chart:
+        version = chart.get("budget_version")
+        rows.append(("Диаграмма", f"факт и бюджет, {chart['period']['label']}"))
+        rows.append(("Версия бюджета", str(version) if version else "бюджет не загружен"))
     return rows
 
 
@@ -129,7 +126,7 @@ def _format_columns(sheet, formats: dict[int, str]) -> None:
 
 
 def build_excel(record: Analysis, organization: str) -> bytes:
-    """Книга Excel: параметры, сравнение, план-факт, AI-заключение. Суммы — числами."""
+    """Книга Excel: параметры, сравнение, данные диаграммы, AI-заключение. Суммы — числами."""
     snapshot = record.result
     workbook = Workbook()
     workbook.remove(workbook.active)
@@ -164,32 +161,17 @@ def build_excel(record: Analysis, organization: str) -> bytes:
             cell.font = Font(bold=True)
         _format_columns(sheet, {1: MONEY_FORMAT, 2: MONEY_FORMAT, 3: MONEY_FORMAT, 4: PCT_FORMAT})
 
-    plan_fact = snapshot.get("plan_fact")
-    if plan_fact:
-        headers = ["Категория", "ЦФО", "План", "Факт", "Отклонение", "Отклонение, %", "Перерасход"]
-        sheet = _sheet(workbook, "План-факт", headers, [36, 20, 18, 18, 18, 14, 14])
-        for row in plan_fact["rows"]:
-            sheet.append(
-                [
-                    row["category"], row.get("cost_center") or "", row["plan"], row["fact"],
-                    row["deviation"],
-                    row["deviation_pct"] if row["deviation_pct"] is not None else "н/д",
-                    "да" if row["overspend"] else "нет",
-                ]
-            )  # fmt: skip
-            if row["overspend"] and row["significant"]:
-                for cell in sheet[sheet.max_row]:
-                    cell.fill = _ALERT_FILL
-        total_pct = plan_fact["total_deviation_pct"]
-        sheet.append(
-            [
-                "Итого", "", plan_fact["total_plan"], plan_fact["total_fact"],
-                plan_fact["total_deviation"], total_pct if total_pct is not None else "н/д", "",
-            ]
-        )  # fmt: skip
-        for cell in sheet[sheet.max_row]:
-            cell.font = Font(bold=True)
-        _format_columns(sheet, {2: MONEY_FORMAT, 3: MONEY_FORMAT, 4: MONEY_FORMAT, 5: PCT_FORMAT})
+    chart = snapshot.get("chart")
+    if chart:
+        headers = (
+            ["Месяц"] + [item["category"] for item in chart["series"]] + ["Факт всего", "Бюджет"]
+        )
+        sheet = _sheet(workbook, "Факт и бюджет", headers, [18] + [18] * (len(headers) - 1))
+        for index, label in enumerate(chart["periods"]):
+            budget = chart["budget"][index] if chart.get("budget") is not None else "нет"
+            amounts = [item["amounts"][index] for item in chart["series"]]
+            sheet.append([label, *amounts, chart["totals"][index], budget])
+        _format_columns(sheet, dict.fromkeys(range(1, len(headers)), MONEY_FORMAT))
 
     sheet = _sheet(workbook, "AI-заключение", ["AI-заключение"], [120])
     sheet.append([record.ai_text or "AI-анализ не запускался"])
@@ -269,7 +251,7 @@ def _ai_paragraphs(text: str, styles: dict) -> list:
 
 
 def build_pdf(record: Analysis, organization: str) -> bytes:
-    """PDF-отчёт: параметры, таблицы, диаграммы-картинки, AI-заключение."""
+    """PDF-отчёт: параметры, таблица сравнения, диаграмма-картинка, AI-заключение."""
     styles = _styles()
     snapshot = record.result
     figures = analyses.snapshot_figures(snapshot)
@@ -313,55 +295,9 @@ def build_pdf(record: Analysis, organization: str) -> bytes:
         for warning in comparison.get("warnings", []):
             flow.append(p(f"Внимание: {warning}"))
         flow.append(Spacer(1, 4 * mm))
-        pies = [[_image(figures["pie1"], 85, (600, 450)), _image(figures["pie2"], 85, (600, 450))]]
-        flow.append(Table(pies, colWidths=[width / 2, width / 2]))
-        if "stacked" in figures:
-            flow.append(_image(figures["stacked"], 170, (1000, 480)))
-
-    plan_fact = snapshot.get("plan_fact")
-    if plan_fact:
-        if comparison:
-            flow.append(PageBreak())
-        period = plan_fact["params"]["period"]["label"]
-        flow.append(
-            p(f"План-факт: {period}, бюджет версии {plan_fact['params']['budget_version']}", "h2")
-        )
-        rows = [
-            [
-                p("Категория", "bold"), p("ЦФО", "bold"), p("План", "num_bold"),
-                p("Факт", "num_bold"), p("Отклонение", "num_bold"), p("%", "num_bold"),
-            ]
-        ]  # fmt: skip
-        highlight = set()
-        for index, row in enumerate(plan_fact["rows"], start=1):
-            rows.append(
-                [
-                    p(row["category"]), p(row.get("cost_center") or "—"),
-                    p(money(row["plan"]), "num"), p(money(row["fact"]), "num"),
-                    p(money(row["deviation"]), "num"), p(percent(row["deviation_pct"]), "num"),
-                ]
-            )  # fmt: skip
-            if row["overspend"] and row["significant"]:
-                highlight.add(index)
-        rows.append(
-            [
-                p("Итого", "bold"), p(""), p(money(plan_fact["total_plan"]), "num_bold"),
-                p(money(plan_fact["total_fact"]), "num_bold"),
-                p(money(plan_fact["total_deviation"]), "num_bold"),
-                p(percent(plan_fact["total_deviation_pct"]), "num_bold"),
-            ]
-        )  # fmt: skip
-        flow.append(
-            _table(rows, [width * s for s in (0.3, 0.14, 0.16, 0.16, 0.14, 0.1)], highlight)
-        )
-        flow.append(
-            p(
-                f"Цветом выделен перерасход больше {plan_fact['threshold_pct']:g} %. "
-                "Отклонение = факт − план."
-            )
-        )
-        flow.append(Spacer(1, 4 * mm))
-        flow.append(_image(figures["plan_fact"], 170, (1000, 480)))
+    if "fact_budget" in figures:
+        flow.append(p("Факт и бюджет по месяцам", "h2"))
+        flow.append(_image(figures["fact_budget"], 180, (1100, 560)))
 
     flow.append(p("AI-заключение", "h2"))
     if record.ai_text:

@@ -289,21 +289,6 @@ def filter_totals(
     }
 
 
-def shares(totals: dict[str, Decimal]) -> list[dict]:
-    """Доли категорий для круговой диаграммы; пустой список — «нет данных».
-
-    В диаграмму попадают только положительные суммы (сторно и нули долей не образуют).
-    """
-    positive = {name: amount for name, amount in totals.items() if amount > 0}
-    total = sum(positive.values(), ZERO)
-    if total == 0:
-        return []
-    return [
-        {"category": name, "amount": float(amount), "share": float(pct(amount, total))}
-        for name, amount in sorted(positive.items(), key=lambda kv: (-kv[1], kv[0]))
-    ]
-
-
 def series_by_period(rows: Iterable[tuple[date, str, Decimal]], granularity: str = "month") -> dict:
     """Суммы по категориям в разрезе дней/месяцев/кварталов/лет для stacked bar.
 
@@ -338,4 +323,68 @@ def series_by_period(rows: Iterable[tuple[date, str, Decimal]], granularity: str
         "starts": [s.isoformat() for s in starts],
         "totals": [float(t) for t in totals],
         "series": series,
+    }
+
+
+def month_starts(start: date, end: date) -> list[date]:
+    """Первые числа всех месяцев от start до end включительно."""
+    current, result = start.replace(day=1), []
+    while current <= end:
+        result.append(current)
+        current = date(current.year + current.month // 12, current.month % 12 + 1, 1)
+    return result
+
+
+def fact_budget_series(
+    fact_rows: Iterable[tuple[date, str, Decimal]],
+    budget_rows: Iterable[tuple[date, str, Decimal]] | None,
+    start: date,
+    end: date,
+) -> dict:
+    """Данные единственной диаграммы: факт по месяцам с разбивкой по категориям и линия бюджета.
+
+    fact_rows: (дата, категория, сумма). budget_rows: (дата, детализация, сумма) или None,
+    если бюджета нет. Квартальная строка бюджета делится поровну на три месяца квартала.
+    В ось попадают все месяцы периода, даже без данных.
+    """
+    starts = month_starts(start, end)
+    index = {month: i for i, month in enumerate(starts)}
+    by_category: dict[str, list[Decimal]] = {}
+    for day, category, amount in fact_rows:
+        position = index.get(bucket_start(day, "month"))
+        if position is not None:
+            by_category.setdefault(category, [ZERO] * len(starts))[position] += Decimal(amount)
+    totals = [
+        sum((amounts[i] for amounts in by_category.values()), ZERO) for i in range(len(starts))
+    ]
+
+    budget = None
+    if budget_rows is not None:
+        budget = [ZERO] * len(starts)
+        for day, grain, amount in budget_rows:
+            months = 3 if grain == "quarter" else 1
+            first = bucket_start(day, "month")
+            for offset in range(months):
+                shifted = first.month - 1 + offset
+                month = date(first.year + shifted // 12, shifted % 12 + 1, 1)
+                if month in index:
+                    budget[index[month]] += Decimal(amount) / months
+
+    categories = sorted(by_category, key=lambda c: (-sum(by_category[c], ZERO), c))
+    return {
+        "periods": [bucket_label(month, "month") for month in starts],
+        "starts": [month.isoformat() for month in starts],
+        "totals": [float(total) for total in totals],
+        "series": [
+            {
+                "category": category,
+                "amounts": [float(a) for a in by_category[category]],
+                "shares": [
+                    float(pct(a, t)) if t != 0 else None
+                    for a, t in zip(by_category[category], totals, strict=True)
+                ],
+            }
+            for category in categories
+        ],
+        "budget": None if budget is None else [round(float(b), 2) for b in budget],
     }

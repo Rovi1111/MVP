@@ -13,7 +13,7 @@ from app.services import analyses, charts, prompts, reports
 from app.services.ollama import OllamaError
 from app.services.settings import get_org_settings
 from app.web.common import can, render
-from app.web.dashboard import _int, read_comparison_params, read_plan_fact_params
+from app.web.dashboard import read_comparison_params, read_int
 
 router = APIRouter(prefix="/analyses")
 _viewer = require(Permission.ANALYTICS_VIEW)
@@ -28,10 +28,8 @@ def _ai_output(request, user, record, error: str | None = None, status_code: int
 async def create(request: Request, user: User = Depends(_viewer), db: Session = Depends(get_db)):
     """Сохраняет расчёт с текущими параметрами формы; action=ai — ещё и запускает AI."""
     form = await request.form()
-    kind = form.get("kind", "")
     try:
-        reader = read_plan_fact_params if kind == "plan_fact" else read_comparison_params
-        record = analyses.save_analysis(db, user, kind, reader(form))
+        record = analyses.save_analysis(db, user, "comparison", read_comparison_params(form))
     except AppError as exc:
         return render(request, "partials/alert.html", {"message": exc.message}, user)
     if form.get("action") != "ai":
@@ -39,7 +37,7 @@ async def create(request: Request, user: User = Depends(_viewer), db: Session = 
     if not can(user, Permission.AI_RUN):
         return _ai_output(request, user, record, "Недостаточно прав для запуска AI-анализа")
     try:
-        record = analyses.run_ai(db, user, record.id, _int(form, "template_id"))
+        record = analyses.run_ai(db, user, record.id, read_int(form, "template_id"))
     except (OllamaError, AppError) as exc:
         return _ai_output(request, user, record, exc.message)
     return _ai_output(request, user, record)
@@ -56,18 +54,15 @@ def detail(
     request: Request, analysis_id: int, user: User = Depends(_viewer), db: Session = Depends(get_db)
 ):
     record = analyses.get_analysis(db, user, analysis_id)
-    figures = analyses.snapshot_figures(record.result)
-    chart_data = {
-        name: {
-            "figure": charts.figure_json(figure),
-            "png_url": f"/api/analyses/{record.id}/charts/{name}?format=png",
-        }
-        for name, figure in figures.items()
+    figure = analyses.snapshot_figures(record.result).get("fact_budget")
+    chart = figure and {
+        "figure": charts.figure_json(figure),
+        "png_url": f"/api/analyses/{record.id}/charts/fact_budget?format=png",
     }
     context = {
         "analysis": record,
         "snapshot": record.result,
-        "charts": chart_data,
+        "chart": chart,
         "templates": prompts.list_templates(db, user.org_id, only_active=True)
         if can(user, Permission.AI_RUN)
         else [],

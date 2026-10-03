@@ -52,6 +52,7 @@ def create_analysis(
     Если Ollama недоступна, расчёт всё равно сохраняется, а причина возвращается в ai_error.
     """
     params = data.model_dump(exclude={"kind", "run_ai", "template_id"})
+    params["descending"] = params.pop("order") != "asc"
     record = analyses.save_analysis(db, user, data.kind, params)
     ai_error = None
     if data.run_ai:
@@ -89,7 +90,7 @@ def analysis_chart(
     user: User = Depends(_viewer),
     db: Session = Depends(get_db),
 ):
-    """Диаграмма сохранённого расчёта: pie1, pie2, stacked, plan_fact."""
+    """Диаграмма сохранённого расчёта: fact_budget (факт по месяцам и линия бюджета)."""
     record = analyses.get_analysis(db, user, analysis_id)
     figure = analyses.snapshot_figures(record.result).get(name)
     if figure is None:

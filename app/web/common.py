@@ -51,10 +51,8 @@ class NavItem:
 
 # Пункты меню; каждый виден только при наличии права
 NAV_ITEMS: list[NavItem] = [
-    NavItem("Главная", "/web/"),
-    NavItem("Сравнение периодов", "/web/dashboard", Permission.ANALYTICS_VIEW),
-    NavItem("План-факт", "/web/plan-fact", Permission.ANALYTICS_VIEW),
-    NavItem("Анализы", "/web/analyses", Permission.ANALYTICS_VIEW),
+    NavItem("Анализ расходов", "/web/dashboard", Permission.ANALYTICS_VIEW),
+    NavItem("Сохранённые анализы", "/web/analyses", Permission.ANALYTICS_VIEW),
     NavItem("Ввод данных", "/web/data", Permission.DATA_MANUAL),
     NavItem("Загрузки", "/web/uploads", Permission.ANALYTICS_VIEW),
     NavItem("Справочники", "/web/reference", Permission.REFERENCE_MANAGE),

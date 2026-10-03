@@ -96,12 +96,11 @@ def test_prompt_contains_only_aggregates(client, fake):
     assert "15.02.2025" not in prompt and "01.01.2025" not in prompt and "Склад" not in prompt
 
 
-def test_plan_fact_only_analysis(client, fake):
-    created = client.post(
-        "/api/analyses", json={"kind": "plan_fact", "period": "2025-02", "run_ai": True}
+def test_only_comparison_kind_is_supported(client, fake):
+    removed = client.post(
+        "/api/analyses", json={"kind": "plan_fact", "period1": "2025-01", "period2": "2025-02"}
     )
-    assert created.status_code == 201 and created.json()["result"]["comparison"] is None
-    assert "анализ только план-факта" in fake.prompt and "План 600,00" in fake.prompt
+    assert removed.status_code == 422 and not fake.requests
 
 
 def test_choose_template_and_rerun(client, fake):
@@ -285,11 +284,13 @@ def test_web_ai_flow(client, fake):
     assert (
         detail.status_code == 200
         and "Заключение." in detail.text
-        and "План-факт за февраль 2025" in detail.text
+        and "Факт и бюджет по месяцам" in detail.text
     )
-    assert f"/api/analyses/{analysis_id}/charts/pie1?format=png" in detail.text
-    png = client.get(f"/api/analyses/{analysis_id}/charts/stacked", params={"format": "png"})
+    assert detail.text.count('class="chart"') == 1 and "Перерасход" not in detail.text
+    assert f"/api/analyses/{analysis_id}/charts/fact_budget?format=png" in detail.text
+    png = client.get(f"/api/analyses/{analysis_id}/charts/fact_budget", params={"format": "png"})
     assert png.content.startswith(b"\x89PNG")
+    assert client.get(f"/api/analyses/{analysis_id}/charts/pie1").status_code == 404
 
 
 def test_web_ai_error_and_auto_run(client, monkeypatch):
@@ -333,4 +334,4 @@ def test_employee_can_run_ai_but_sees_no_settings(client, client_for, fake):
     employee = client_for("a_employee")
     created = employee.post("/api/analyses", json=COMPARISON | {"run_ai": True})
     assert created.status_code == 201 and created.json()["ai_text"] == "Заключение."
-    assert "Настройки" not in employee.get("/web/").text
+    assert "Настройки" not in employee.get("/web/dashboard").text

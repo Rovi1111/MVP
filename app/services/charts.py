@@ -11,9 +11,9 @@ import plotly.io as pio
 
 PALETTE = [
     "#2456c6", "#e8833a", "#2a9d6f", "#c9404d", "#7b5cc4", "#17a2b8",
-    "#b8860b", "#d1589b", "#5f7285", "#8cb33c", "#1f3a5f", "#f2b632",
+    "#b8860b", "#d1589b", "#5f7285", "#8cb33c", "#4a78d0", "#f2b632",
 ]  # fmt: skip
-PLAN_COLOR, FACT_COLOR, OVERSPEND_COLOR = "#9aa7b8", "#2456c6", "#c9404d"
+BUDGET_COLOR = "#1c2330"
 NO_DATA = "Нет данных"
 
 _kaleido_lock = threading.Lock()
@@ -47,35 +47,21 @@ def no_data_figure(title: str) -> go.Figure:
     return _layout(fig, title)
 
 
-def pie_figure(shares: list[dict], title: str, colors: dict[str, str] | None = None) -> go.Figure:
-    """Круговая диаграмма долей категорий; shares — результат analytics.shares()."""
-    if not shares:
-        return no_data_figure(title)
-    labels = [item["category"] for item in shares]
-    colors = colors or colors_for(labels)
-    fig = go.Figure(
-        go.Pie(
-            labels=labels,
-            values=[item["amount"] for item in shares],
-            marker={"colors": [colors.get(name) for name in labels]},
-            textinfo="percent",
-            sort=False,
-            hovertemplate="%{label}<br>%{value:,.2f} ₽<br>%{percent}<extra></extra>",
-        )
-    )
-    return _layout(fig, title)
+def fact_budget_figure(data: dict, title: str, colors: dict[str, str] | None = None) -> go.Figure:
+    """Факт по месяцам (столбцы с накоплением по категориям) и линия бюджета.
 
-
-def stacked_bar_figure(series: dict, title: str, colors: dict[str, str] | None = None) -> go.Figure:
-    """Stacked bar по периодам; series — результат analytics.series_by_period()."""
-    if not series["periods"]:
+    data — результат analytics.fact_budget_series().
+    """
+    has_fact = any(data["totals"])
+    has_budget = bool(data.get("budget")) and any(data["budget"])
+    if not has_fact and not has_budget:
         return no_data_figure(title)
-    colors = colors or colors_for(s["category"] for s in series["series"])
+    colors = colors or colors_for(s["category"] for s in data["series"])
     fig = go.Figure()
-    for item in series["series"]:
+    for item in data["series"]:
         fig.add_bar(
             name=item["category"],
-            x=series["periods"],
+            x=data["periods"],
             y=item["amounts"],
             customdata=item["shares"],
             marker_color=colors.get(item["category"]),
@@ -83,35 +69,19 @@ def stacked_bar_figure(series: dict, title: str, colors: dict[str, str] | None =
                 "%{fullData.name}<br>%{x}<br>%{y:,.2f} ₽<br>Доля: %{customdata:.1f}%<extra></extra>"
             ),
         )
+    if data.get("budget") is not None:
+        fig.add_scatter(
+            name="Бюджет",
+            x=data["periods"],
+            y=data["budget"],
+            mode="lines+markers",
+            line={"color": BUDGET_COLOR, "width": 3},
+            marker={"size": 8},
+            hovertemplate="Бюджет<br>%{x}<br>%{y:,.2f} ₽<extra></extra>",
+        )
     fig.update_xaxes(type="category")
-    fig.update_yaxes(gridcolor="#e6e9ee", tickformat=",.0f")
+    fig.update_yaxes(gridcolor="#e6e9ee", tickformat=",.0f", rangemode="tozero")
     return _layout(fig, title, barmode="relative")
-
-
-def plan_fact_figure(rows: list[dict], title: str) -> go.Figure:
-    """План и факт по категориям; перерасход сверх порога выделен цветом."""
-    totals: dict[str, dict] = {}
-    for row in rows:
-        item = totals.setdefault(row["category"], {"plan": 0.0, "fact": 0.0, "alert": False})
-        item["plan"] += row["plan"]
-        item["fact"] += row["fact"]
-        item["alert"] = item["alert"] or (row["overspend"] and row["significant"])
-    if not totals:
-        return no_data_figure(title)
-    names = sorted(totals, key=lambda n: -max(totals[n]["plan"], totals[n]["fact"]))
-    hover = "%{x}<br>%{fullData.name}: %{y:,.2f} ₽<extra></extra>"
-    fig = go.Figure()
-    fig.add_bar(
-        name="План", x=names, y=[totals[n]["plan"] for n in names],
-        marker_color=PLAN_COLOR, hovertemplate=hover,
-    )  # fmt: skip
-    fig.add_bar(
-        name="Факт", x=names, y=[totals[n]["fact"] for n in names],
-        marker_color=[OVERSPEND_COLOR if totals[n]["alert"] else FACT_COLOR for n in names],
-        hovertemplate=hover,
-    )  # fmt: skip
-    fig.update_yaxes(gridcolor="#e6e9ee", tickformat=",.0f")
-    return _layout(fig, title, barmode="group")
 
 
 def figure_json(fig: go.Figure) -> str:

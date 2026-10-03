@@ -15,7 +15,7 @@ router = APIRouter()
 @router.get("/login")
 def login_page(request: Request):
     if read_session_token(request.cookies.get(SESSION_COOKIE)):
-        return RedirectResponse("/web/", status_code=303)
+        return RedirectResponse("/web/dashboard", status_code=303)
     return render(request, "login.html")
 
 
@@ -34,7 +34,7 @@ def login_submit(
             {"error": "Неверный логин или пароль", "login": login},
             status_code=401,
         )
-    response = RedirectResponse("/web/", status_code=303)
+    response = RedirectResponse("/web/dashboard", status_code=303)
     auth_service.set_session_cookie(response, user)
     return response
 

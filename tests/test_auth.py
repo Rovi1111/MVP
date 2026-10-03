@@ -78,7 +78,7 @@ def test_csrf_required_for_mutations(client_for):
 
 def test_web_login_flow(client_for):
     client = client_for()
-    assert client.get("/web/").headers["location"] == "/web/login"
+    assert client.get("/web/dashboard").headers["location"] == "/web/login"
     page = client.get("/web/login")
     assert page.status_code == 200 and "Вход" in page.text
     token = client.get("/api/auth/csrf").json()["csrf_token"]
@@ -94,17 +94,17 @@ def test_web_login_flow(client_for):
     ok = client.post(
         "/web/login", data={"login": "a_admin", "password": PASSWORD, "csrf_token": token}
     )
-    assert ok.status_code == 303 and ok.headers["location"] == "/web/"
-    home = client.get("/web/")
+    assert ok.status_code == 303 and ok.headers["location"] == "/web/dashboard"
+    home = client.get("/web/dashboard")
     assert home.status_code == 200 and "Организация А" in home.text
 
     out = client.post("/web/logout", data={"csrf_token": token})
     assert out.status_code == 303
-    assert client.get("/web/").status_code == 303
+    assert client.get("/web/dashboard").headers["location"] == "/web/login"
 
 
 def test_htmx_request_gets_hx_redirect_when_unauthenticated(client_for):
-    response = client_for().get("/web/", headers={"HX-Request": "true"})
+    response = client_for().get("/web/dashboard", headers={"HX-Request": "true"})
     assert response.headers["HX-Redirect"] == "/web/login"
 
 
