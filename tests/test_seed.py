@@ -4,7 +4,7 @@ from app.permissions import Role
 from tests.conftest import ApiClient
 
 
-def test_seed_creates_org_users_and_meaningful_data(app, session_factory, db, capsys):
+def test_seed_creates_org_users_and_two_years_of_data(app, session_factory, db, capsys):
     assert cli.main(["seed"], session_factory) == 0
     assert "DEFAULT_PASSWORD" in capsys.readouterr().out
     assert [o.name for o in db.query(Organization)] == ["Демо-компания"]
@@ -14,31 +14,32 @@ def test_seed_creates_org_users_and_meaningful_data(app, session_factory, db, ca
     for role in Role:  # по одному пользователю каждой роли, вход работает
         client = ApiClient(app)
         assert client.login(f"demo_{role.value}", seed.DEFAULT_PASSWORD).status_code == 200
+    assert {c["name"] for c in client.get("/api/categories").json()} == set(demo.items)
+    assert len(client.get("/api/cost-centers").json()) == 2
+    bounds = client.get("/api/analytics/bounds").json()
+    assert (bounds["fact_from"], bounds["fact_to"]) == ("2024-01-05", "2025-12-25")
 
-    names = {c["name"] for c in client.get("/api/categories").json()}
-    assert names == set(demo.fact)
+    chart = client.get("/api/charts/fact-budget", params={"period": "2024..2025"}).json()
+    by_name = {t["name"]: t["y"] for t in chart["data"]}
+    budget = by_name.pop("Бюджет")
+    assert len(budget) == 24 and len(set(budget)) > 12  # бюджет меняется от месяца к месяцу
+    expected = [sum(demo.budget(c, i) for c in demo.items) for i in range(24)]
+    assert budget == expected
+    fact_january = sum(amounts[0] for amounts in by_name.values())
+    assert fact_january == sum(demo.fact(c, 0) for c in demo.items)  # разбивка не теряет копейки
+    assert by_name["Связь и ПО"][:12] == [0.0] * 12 and by_name["Связь и ПО"][12] > 0  # появилась
+    assert by_name["Командировки"][20] > 0 and by_name["Командировки"][21:] == [0.0] * 3  # исчезла
 
-    quarters = {"period1": "2025-Q1", "period2": "2025-Q2"}
-    comparison = client.get("/api/analytics/comparison", params=quarters).json()
-    assert {row["change_type"] for row in comparison["rows"]} == {
-        "increase",
-        "decrease",
-        "new",
-        "removed",
-        "no_change",
-    }
-    expected_q1 = sum(sum(values[:3]) for values in demo.fact.values())
-    assert comparison["total_p1"] == expected_q1  # разбивка по дням и ЦФО не теряет копейки
-
-    plan_fact = client.get("/api/analytics/plan-fact", params={"period": "2025-Q2"}).json()
+    # В динамике есть все виды изменений между годами и превышения бюджета
+    years = {"period1": "2024", "period2": "2025"}
+    comparison = client.get("/api/analytics/comparison", params=years).json()
+    assert {"increase", "decrease", "new"} <= {row["change_type"] for row in comparison["rows"]}
+    plan_fact = client.get("/api/analytics/plan-fact", params={"period": "2025"}).json()
     assert any(row["overspend"] and row["significant"] for row in plan_fact["rows"])
+    assert any(not row["overspend"] and row["significant"] for row in plan_fact["rows"])
 
     days = client.get("/api/analytics/series", params={"period": "2025-01", "granularity": "day"})
     assert len(days.json()["periods"]) == 3
-    assert len(client.get("/api/cost-centers").json()) == 2
-
-    chart = client.get("/api/charts/fact-budget", params={"period": "2025"}).json()
-    assert chart["data"][-1]["name"] == "Бюджет" and len(chart["data"][-1]["x"]) == 12
 
 
 def test_seed_is_idempotent(session_factory, db, capsys):

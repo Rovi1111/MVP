@@ -1,9 +1,9 @@
-"""Демо-данные: организация с обычными статьями расходов, факт за два квартала 2025 года и бюджет.
+"""Демо-данные: организация с обычными статьями расходов, факт и бюджет за 2024–2025 годы.
 
 Запуск: python -m app.cli seed
 Данные проходят тот же путь, что и загрузка файла (валидация, сопоставление, версии).
-В данных есть все типы изменений между 1 и 2 кварталом
-(рост, снижение, новая, исчезнувшая, без изменений) и перерасходы бюджета.
+В них есть рост и снижение по статьям, сезонность, появившаяся и исчезнувшая статьи,
+а бюджет меняется от месяца к месяцу и местами превышен.
 """
 
 from dataclasses import dataclass
@@ -20,10 +20,33 @@ from app.services.users import build_user
 
 # Пароль демо-пользователей (только для локального знакомства с системой)
 DEFAULT_PASSWORD = "demo-2025-expenses"
-YEAR = 2025
-MONTHS = range(1, 7)
+# 24 месяца: январь 2024 — декабрь 2025
+MONTHS = [(year, month) for year in (2024, 2025) for month in range(1, 13)]
 # Платежи внутри месяца: (день, доля суммы) — чтобы была осмысленной детализация по дням
 PAYMENT_DAYS = ((5, 0.5), (15, 0.3), (25, 0.2))
+
+FLAT = (1.0,) * 12
+# Коэффициенты по месяцам года: спад летом, пик в конце года
+SEASON = (0.95, 0.92, 1.0, 1.0, 1.02, 0.95, 0.9, 0.9, 1.0, 1.08, 1.12, 1.3)
+# Бюджет планируют с той же сезонностью, но осторожнее
+PLAN_SEASON = (0.96, 0.94, 1.0, 1.0, 1.0, 0.96, 0.92, 0.92, 1.0, 1.05, 1.1, 1.2)
+# Зарплата: квартальные премии и годовая в декабре
+BONUS = (1.0, 1.0, 1.04, 1.0, 1.0, 1.06, 1.0, 1.0, 1.04, 1.0, 1.0, 1.18)
+# Аренда: индексация с июля
+INDEXATION = (1.0,) * 6 + (1.04,) * 6
+
+
+@dataclass(frozen=True)
+class Item:
+    """Статья расходов демо-компании."""
+
+    base: int  # факт в месяц на январь 2024
+    growth: float  # рост факта за год
+    season: tuple[float, ...]  # сезонность факта
+    plan: tuple[int, int]  # месячный план на 2024 и 2025 годы
+    plan_season: tuple[float, ...]  # распределение плана по месяцам года
+    first: int = 0  # первый и последний месяц с расходами (0 — январь 2024)
+    last: int = 23
 
 
 @dataclass(frozen=True)
@@ -31,8 +54,21 @@ class DemoOrg:
     name: str
     prefix: str  # логины: <prefix>_admin, <prefix>_manager, <prefix>_employee
     cost_centers: tuple[tuple[str, float], ...]  # (ЦФО, доля расходов)
-    fact: dict[str, tuple[int, ...]]  # категория → суммы по месяцам (январь–июнь)
-    budget: dict[str, tuple[int, ...]]
+    items: dict[str, Item]
+
+    def fact(self, category: str, index: int) -> int:
+        """Факт статьи за месяц с номером index, округлённый до тысяч."""
+        item = self.items[category]
+        if not item.first <= index <= item.last:
+            return 0
+        month = MONTHS[index][1]
+        return round(item.base * (1 + item.growth) ** (index / 12) * item.season[month - 1], -3)
+
+    def budget(self, category: str, index: int) -> int:
+        """План статьи за месяц: годовой уровень с распределением по месяцам."""
+        item = self.items[category]
+        year, month = MONTHS[index]
+        return round(item.plan[year - 2024] * item.plan_season[month - 1], -3)
 
 
 DEMO_ORGS = [
@@ -40,23 +76,14 @@ DEMO_ORGS = [
         name="Демо-компания",
         prefix="demo",
         cost_centers=(("Офис", 0.6), ("Склад", 0.4)),
-        fact={
-            "Закупки": (2_400_000, 2_300_000, 2_500_000, 2_900_000, 3_000_000, 3_200_000),
-            "Зарплата": (1_800_000, 1_800_000, 1_850_000, 1_900_000, 1_900_000, 1_950_000),
-            "Аренда": (400_000,) * 6,
-            "Маркетинг": (300_000, 320_000, 280_000, 220_000, 200_000, 180_000),
-            "Логистика": (350_000, 340_000, 360_000, 420_000, 450_000, 480_000),
-            "Связь и ПО": (0, 0, 0, 150_000, 150_000, 160_000),
-            "Командировки": (120_000, 90_000, 60_000, 0, 0, 0),
-        },
-        budget={
-            "Закупки": (2_500_000,) * 3 + (2_700_000,) * 3,
-            "Зарплата": (1_850_000,) * 6,
-            "Аренда": (400_000,) * 6,
-            "Маркетинг": (300_000,) * 6,
-            "Логистика": (350_000,) * 3 + (400_000,) * 3,
-            "Связь и ПО": (0, 0, 0, 120_000, 120_000, 120_000),
-            "Командировки": (100_000,) * 3 + (50_000,) * 3,
+        items={
+            "Закупки": Item(2_200_000, 0.22, SEASON, (2_350_000, 2_700_000), PLAN_SEASON),
+            "Зарплата": Item(1_700_000, 0.10, BONUS, (1_750_000, 1_900_000), BONUS),
+            "Аренда": Item(400_000, 0.0, INDEXATION, (400_000, 416_000), INDEXATION),
+            "Маркетинг": Item(320_000, -0.25, SEASON, (300_000, 280_000), PLAN_SEASON),
+            "Логистика": Item(300_000, 0.30, SEASON, (310_000, 370_000), PLAN_SEASON),
+            "Связь и ПО": Item(140_000, 0.08, FLAT, (0, 130_000), FLAT, first=12),
+            "Командировки": Item(110_000, -0.10, SEASON, (100_000, 80_000), PLAN_SEASON, last=20),
         },
     ),
 ]
@@ -81,15 +108,14 @@ class SeedSource(DataSource):
 def fact_rows(org: DemoOrg) -> list[RawRow]:
     """Факт по дням: каждая месячная сумма разбита на платежи и ЦФО."""
     rows: list[RawRow] = []
-    for category, monthly in org.fact.items():
-        for month, total in zip(MONTHS, monthly, strict=True):
-            if not total:
-                continue
-            for day, day_share in PAYMENT_DAYS:
+    for category in org.items:
+        for index, (year, month) in enumerate(MONTHS):
+            total = org.fact(category, index)
+            for day, day_share in PAYMENT_DAYS if total else ():
                 for cost_center, center_share in org.cost_centers:
                     amount = round(total * day_share * center_share, 2)
                     rows.append(
-                        RawRow(len(rows) + 1, date(YEAR, month, day), category, amount, cost_center)
+                        RawRow(len(rows) + 1, date(year, month, day), category, amount, cost_center)
                     )
     return rows
 
@@ -97,10 +123,11 @@ def fact_rows(org: DemoOrg) -> list[RawRow]:
 def budget_rows(org: DemoOrg) -> list[RawRow]:
     """Бюджет по месяцам, без разбивки по ЦФО."""
     rows: list[RawRow] = []
-    for category, monthly in org.budget.items():
-        for month, total in zip(MONTHS, monthly, strict=True):
+    for category in org.items:
+        for index, (year, month) in enumerate(MONTHS):
+            total = org.budget(category, index)
             if total:
-                rows.append(RawRow(len(rows) + 1, f"{YEAR}-{month:02}", category, total))
+                rows.append(RawRow(len(rows) + 1, f"{year}-{month:02}", category, total))
     return rows
 
 
