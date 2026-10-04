@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "partials/macros.html" import chart_block %}
 {% block title %}{{ analysis.title }} — {{ app_name }}{% endblock %}
-{% block head %}<script src="/assets/plotly.min.js" defer></script><script src="/static/app.js" defer></script>{% endblock %}
+{% block head %}<script src="/assets/plotly.min.js" defer></script>{% endblock %}
 {% block content %}
 <h1>{{ analysis.title }}</h1>
 <p class="muted">Сохранён {{ analysis.created_at | ru_date }}, автор: {{ analysis.author.login }}.

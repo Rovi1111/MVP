@@ -4,31 +4,41 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css">
+  {# Тема применяется до отрисовки страницы, чтобы не было вспышки светлого фона #}
+  <script>document.documentElement.dataset.theme = localStorage.getItem("theme") || "dark";</script>
+  <link rel="stylesheet" href="{{ asset('style.css') }}">
   {# HTMX по умолчанию не вставляет ответы 4xx/5xx — разрешаем, чтобы показывать ошибки #}
   <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
-  <script src="/static/htmx.min.js" defer></script>
+  <script src="{{ asset('htmx.min.js') }}" defer></script>
+  <script src="{{ asset('app.js') }}" defer></script>
   {% block head %}{% endblock %}
 </head>
 {# hx-headers: HTMX добавляет CSRF-токен ко всем своим запросам #}
 <body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}' {% if user %}class="with-sidebar"{% endif %}>
   {% if user %}
   <aside class="sidebar">
-    <a class="brand" href="/web/dashboard">{{ app_name }}</a>
+    <a class="brand" href="/web/dashboard"><span class="brand-mark">₽</span>{{ app_name }}</a>
     <nav>
       {% for item in nav_for(user) %}
-      <a href="{{ item.url }}" {% if request.url.path.startswith(item.url) %}class="active"{% endif %}>{{ item.title }}</a>
+      <a href="{{ item.url }}" {% if request.url.path.startswith(item.url) %}class="active"{% endif %}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ item.icon | safe }}</svg>
+        {{ item.title }}</a>
       {% endfor %}
     </nav>
     <div class="userbox">
       <span>{{ user.full_name or user.login }}</span>
       <span class="muted small">{{ user.role | role_label }}</span>
-      <form method="post" action="/web/logout">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="link" type="submit">Выйти</button>
-      </form>
+      <div class="actions">
+        <form method="post" action="/web/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="link" type="submit">Выйти</button>
+        </form>
+        <button type="button" class="theme-toggle" data-theme-toggle></button>
+      </div>
     </div>
   </aside>
+  {% else %}
+  <button type="button" class="theme-toggle floating" data-theme-toggle></button>
   {% endif %}
   <main>
     <div id="flash"></div>

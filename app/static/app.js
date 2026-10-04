@@ -80,13 +80,52 @@ document.addEventListener("change", (e) => {
   }
 });
 
-// Диаграммы Plotly: рисуем после загрузки страницы и после каждого обновления HTMX
+// ---------- Тема оформления ----------
+function currentTheme() { return document.documentElement.dataset.theme === "light" ? "light" : "dark"; }
+function labelThemeButtons() {
+  document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
+    button.textContent = currentTheme() === "dark" ? "☀ Светлая" : "☾ Тёмная";
+    button.title = "Переключить тему оформления";
+  });
+}
+document.addEventListener("DOMContentLoaded", labelThemeButtons);
+document.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element) || !e.target.closest("[data-theme-toggle]")) return;
+  const theme = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem("theme", theme);
+  labelThemeButtons();
+  document.querySelectorAll(".chart").forEach(drawChart);  // перекрасить диаграммы
+});
+
+// ---------- Диаграммы Plotly ----------
+// Сервер отдаёт фигуру в светлом оформлении (оно же идёт в PNG и PDF);
+// на странице цвета подстраиваются под выбранную тему.
+function themedFigure(figure) {
+  const dark = currentTheme() === "dark";
+  const text = dark ? "#e6eaf2" : "#18202e";
+  const grid = dark ? "#2a3445" : "#e6e9ee";
+  const layout = structuredClone(figure.layout);
+  Object.assign(layout, { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)" });
+  layout.font = { ...layout.font, color: text };
+  layout.xaxis = { ...layout.xaxis, linecolor: grid, tickcolor: grid };
+  layout.yaxis = { ...layout.yaxis, gridcolor: grid, zerolinecolor: grid };
+  layout.hoverlabel = { bgcolor: dark ? "#1d2532" : "#ffffff", bordercolor: grid, font: { color: text } };
+  const data = figure.data.map((trace) => trace.type === "scatter"
+    ? { ...trace, line: { ...trace.line, color: dark ? "#f4f6fb" : "#1c2330" } }  // линия бюджета
+    : { ...trace, marker: { ...trace.marker, line: { width: 0 } } });
+  return { data, layout };
+}
+function drawChart(el) {
+  if (!window.Plotly || !el._figure) return;
+  const { data, layout } = themedFigure(el._figure);
+  Plotly.react(el, data, layout, { responsive: true, displaylogo: false, locale: "ru" });
+}
 function renderCharts(root) {
-  if (!window.Plotly) return;
   root.querySelectorAll(".chart[data-figure]").forEach((el) => {
-    const figure = JSON.parse(el.dataset.figure);
-    Plotly.newPlot(el, figure.data, figure.layout, { responsive: true, displaylogo: false, locale: "ru" });
+    el._figure = JSON.parse(el.dataset.figure);
     el.removeAttribute("data-figure");
+    drawChart(el);
   });
 }
 document.addEventListener("DOMContentLoaded", () => renderCharts(document));
