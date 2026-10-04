@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Загрузки — {{ app_name }}{% endblock %}
+{% from "partials/macros.html" import empty_state %}
 {% block content %}
 <h1>История загрузок</h1>
+{% if not uploads %}
+{{ empty_state("Загрузок пока нет", "Здесь появятся все загруженные файлы и ручной ввод — с версиями и статусами.",
+               "/web/data" if can(user, Permission.DATA_MANUAL), "Загрузить первый файл") }}
+{% else %}
 <div class="table-wrap card">
   <table>
     <thead><tr><th>Дата</th><th>Тип</th><th>Версия</th><th>Источник</th><th>Автор</th>
@@ -21,4 +26,5 @@
     </tbody>
   </table>
 </div>
+{% endif %}
 {% endblock %}

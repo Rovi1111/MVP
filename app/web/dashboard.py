@@ -7,14 +7,14 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from starlette.datastructures import QueryParams
 
-from app.api.charts import CHART_NAME, build_figure
+from app.api.charts import CHART_NAME, figure_for
 from app.db import get_db
 from app.deps import require
 from app.errors import AppError, InvalidDataError
 from app.models import User
 from app.permissions import Permission
 from app.repositories.reference import CategoryRepository
-from app.services import analysis, charts, prompts
+from app.services import analysis, analytics, charts, prompts
 from app.services.periods import GRANULARITIES, month_end
 from app.services.settings import get_org_settings
 from app.web.common import can, render
@@ -99,7 +99,8 @@ def dashboard_result(
 ):
     try:
         query = read_params(request.query_params)
-        figure = build_figure(db, user, **query)
+        data = analysis.run_fact_budget(db, user, **query)
+        figure = figure_for(db, user, data)
     except AppError as exc:
         return render(request, "partials/alert.html", {"message": exc.message}, user)
     link = {k: v for k, v in query.items() if v not in (None, "", [])} | {"format": "png"}
@@ -108,6 +109,7 @@ def dashboard_result(
             "figure": charts.figure_json(figure),
             "png_url": f"/api/charts/{CHART_NAME}?{urlencode(link, doseq=True)}",
         },
+        "kpi": analytics.summarize(data),
         "no_budget_by_day": query["granularity"] == "day",
         "ai": ai_context(db, user),
     }

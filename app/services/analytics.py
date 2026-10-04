@@ -385,6 +385,36 @@ def fact_budget_series(
     }
 
 
+def summarize(series: dict) -> dict:
+    """Итоги ряда динамики для карточек над диаграммой: факт, бюджет, отклонение.
+
+    series — результат fact_budget_series(). Если бюджета нет (или шаг — дни),
+    budget, deviation и deviation_pct равны None.
+    """
+    fact = Decimal(str(sum(series["totals"])))
+    steps = len(series["totals"])
+    result = {
+        "fact": float(fact),
+        "average": float(fact / steps) if steps else 0.0,
+        "steps": steps,
+        "granularity": series.get("granularity", "month"),
+        "budget": None,
+        "deviation": None,
+        "deviation_pct": None,
+        "execution_pct": None,  # факт в процентах от бюджета
+    }
+    if series.get("budget") is not None:
+        budget = Decimal(str(sum(series["budget"])))
+        share = pct(fact - budget, budget)
+        result |= {
+            "budget": float(budget),
+            "deviation": float(fact - budget),
+            "deviation_pct": float(share) if share is not None else None,
+            "execution_pct": float(share) + 100 if share is not None else None,
+        }
+    return result
+
+
 def compare_halves(series: dict) -> dict | None:
     """Сравнивает первую и вторую половины ряда динамики по категориям.
 

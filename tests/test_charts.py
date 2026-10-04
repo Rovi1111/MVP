@@ -326,6 +326,9 @@ def test_dashboard_result_is_single_chart(client):
     result = client.get("/web/dashboard/result", params=FORM)
     assert result.status_code == 200
     assert result.text.count('class="chart"') == 1 and "<table" not in result.text
+    # карточки с итогами: факт 435, бюджет 390, перерасход 45 (+11,5 %)
+    for text in ("Факт за период", "435,00", "390,00", "+45,00", "+11,5", "перерасход"):
+        assert text in result.text
     assert "Скачать PNG" in result.text and "Запустить AI-анализ" in result.text
     assert "period=2024-11-01..2025-02-28&amp;granularity=month&amp;format=png" in result.text
     figure = embedded_figure(result.text)
@@ -338,6 +341,9 @@ def test_dashboard_result_is_single_chart(client):
     assert "categories=%D0%A0" in filtered.text  # фильтр попадает и в ссылку на PNG
     by_day = client.get("/web/dashboard/result", params=FORM | {"step": "day"})
     assert "По дням бюджет не показывается" in by_day.text
+    assert (
+        "при шаге «дни» не считается" in by_day.text and "Отклонение от бюджета" not in by_day.text
+    )
     empty = client.get(
         "/web/dashboard/result", params={"date_from": "2019-01-01", "date_to": "2019-12-31"}
     )
@@ -358,7 +364,24 @@ def test_sidebar_navigation_and_removed_pages(client, client_for):
     page = client.get("/web/dashboard").text
     assert '<aside class="sidebar">' in page and "Главная" not in page and "План-факт" not in page
     assert 'href="/web/dashboard" class="active"' in page
-    assert "sidebar" not in client_for().get("/web/login").text
+    assert "<aside" not in client_for().get("/web/login").text
+
+
+def test_empty_states(client_for):
+    client = client_for("b_admin")
+    dashboard = client.get("/web/dashboard").text
+    assert "Данных пока нет" in dashboard and 'href="/web/data">Загрузить данные' in dashboard
+    assert 'id="analysis-form"' not in dashboard
+    assert "Загрузить первый файл" in client.get("/web/uploads").text
+    assert "Сохранённых анализов пока нет" in client.get("/web/analyses").text
+
+
+def test_branding_and_collapsible_menu(client):
+    page = client.get("/web/dashboard").text
+    assert (
+        'class="logo"' in page and "/static/logo.png?v=" in page and "data-sidebar-toggle" in page
+    )
+    assert client.get("/static/logo.png").headers["content-type"] == "image/png"
 
 
 def test_plotly_asset_served(client):

@@ -4,3 +4,51 @@
   <a class="small" href="{{ chart.png_url }}" download>Скачать PNG</a>
 </div>
 {% endmacro %}
+
+{# Карточки с итогами над диаграммой; kpi — результат analytics.summarize() #}
+{% macro kpi_cards(kpi) %}
+<div class="kpis">
+  <div class="kpi">
+    <span class="kpi-title">Факт за период</span>
+    <strong>{{ kpi.fact | money }}</strong>
+    <span class="muted small">в среднем за {{ ("step_" ~ kpi.granularity) | label }}: {{ kpi.average | money }}</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-title">Бюджет</span>
+    {% if kpi.budget is not none %}
+    <strong>{{ kpi.budget | money }}</strong>
+    <span class="muted small">{% if kpi.execution_pct is not none %}исполнение: {{ "%.1f" | format(kpi.execution_pct) | replace(".", ",") }}&nbsp;%{% else %}план нулевой{% endif %}</span>
+    {% else %}
+    <strong class="muted">—</strong>
+    <span class="muted small">{{ "при шаге «дни» не считается" if kpi.granularity == "day" else "бюджет не загружен" }}</span>
+    {% endif %}
+  </div>
+  {% if kpi.deviation is not none %}
+  <div class="kpi {{ 'over' if kpi.deviation > 0 else 'under' if kpi.deviation < 0 }}">
+    <span class="kpi-title">Отклонение от бюджета</span>
+    <strong>{{ "+" if kpi.deviation > 0 }}{{ kpi.deviation | money }}</strong>
+    <span class="small">{{ kpi.deviation_pct | pct }} — {{ "перерасход" if kpi.deviation > 0 else "экономия" if kpi.deviation < 0 else "точно по плану" }}</span>
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# Пустое состояние раздела: пояснение и кнопка следующего шага #}
+{% macro empty_state(title, text, url=None, action=None) %}
+<div class="empty">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 11v4M10 13h4"/></svg>
+  <h2>{{ title }}</h2>
+  <p class="muted">{{ text }}</p>
+  {% if url %}<a class="button" href="{{ url }}">{{ action }}</a>{% endif %}
+</div>
+{% endmacro %}
+
+{# Индикатор долгой операции со счётчиком времени #}
+{% macro progress(id, text) %}
+<div id="{{ id }}" class="htmx-indicator progress">
+  <span class="spinner" aria-hidden="true"></span>
+  <span>{{ text }}</span>
+  <span class="muted" data-elapsed></span>
+</div>
+{% endmacro %}

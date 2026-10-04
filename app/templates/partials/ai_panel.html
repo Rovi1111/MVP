@@ -1,4 +1,5 @@
 {# Панель AI-анализа под диаграммой. Параметры берутся из формы #analysis-form #}
+{% from "partials/macros.html" import progress %}
 {% if ai %}
 <section class="card" id="ai-panel">
   <h2>AI-анализ</h2>
@@ -11,12 +12,12 @@
       </select>
     </label>
     <button hx-post="/web/analyses" hx-include="#analysis-form, #ai-controls" hx-target="#ai-output"
-            hx-vals='{"action": "ai"}' hx-indicator="#ai-indicator"
+            hx-swap="outerHTML" hx-vals='{"action": "ai"}' hx-indicator="#ai-indicator"
             hx-disabled-elt="this" {% if ai.auto %}hx-trigger="click, load"{% endif %}>Запустить AI-анализ</button>
     <button class="secondary" hx-post="/web/analyses" hx-include="#analysis-form" hx-target="#ai-output"
-            hx-vals='{"action": "save"}'>Сохранить расчёт без AI</button>
+            hx-swap="outerHTML" hx-vals='{"action": "save"}'>Сохранить расчёт без AI</button>
   </div>
-  <p id="ai-indicator" class="htmx-indicator muted">Модель готовит заключение — это может занять до нескольких минут…</p>
+  {{ progress("ai-indicator", "Модель готовит заключение — обычно 1–2 минуты") }}
   <div id="ai-output"></div>
 </section>
 {% endif %}

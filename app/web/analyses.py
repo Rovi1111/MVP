@@ -9,7 +9,7 @@ from app.errors import AppError
 from app.models import User
 from app.permissions import Permission
 from app.repositories.analyses import AnalysisRepository
-from app.services import analyses, charts, prompts, reports
+from app.services import analyses, analytics, charts, prompts, reports
 from app.services.ollama import OllamaError
 from app.services.settings import get_org_settings
 from app.web.common import can, render
@@ -63,6 +63,7 @@ def detail(
         "analysis": record,
         "snapshot": record.result,
         "chart": chart,
+        "kpi": analytics.summarize(record.result["chart"]) if chart else None,
         "templates": prompts.list_templates(db, user.org_id, only_active=True)
         if can(user, Permission.AI_RUN)
         else [],

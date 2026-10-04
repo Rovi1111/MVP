@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Анализы — {{ app_name }}{% endblock %}
+{% from "partials/macros.html" import empty_state %}
 {% block content %}
 <h1>Сохранённые анализы</h1>
+{% if not analyses %}
+{{ empty_state("Сохранённых анализов пока нет", "Запустите AI-анализ или нажмите «Сохранить расчёт» под диаграммой — расчёт появится здесь, его можно будет выгрузить в PDF и Excel.",
+               "/web/dashboard", "Перейти к анализу расходов") }}
+{% else %}
 <div class="table-wrap card">
   <table>
     <thead><tr><th>Дата</th><th>Название</th><th>Автор</th><th>AI-заключение</th><th></th></tr></thead>
@@ -17,4 +22,5 @@
     </tbody>
   </table>
 </div>
+{% endif %}
 {% endblock %}

@@ -17,11 +17,15 @@ router = APIRouter(prefix="/charts", tags=["charts"], dependencies=[Depends(csrf
 CHART_NAME = "fact-budget"
 
 
-def build_figure(db: Session, user: User, period: str, **filters):
-    """Единственная диаграмма сервиса: динамика факта (с накоплением) и линия бюджета."""
-    data = analysis.run_fact_budget(db, user, period, **filters)
+def figure_for(db: Session, user: User, data: dict):
+    """Фигура по готовым данным динамики; цвета статей постоянны для организации."""
     colors = charts.colors_for(c.name for c in CategoryRepository(db, user.org_id).list())
     return charts.fact_budget_figure(data, f"Факт и бюджет: {data['period']['label']}", colors)
+
+
+def build_figure(db: Session, user: User, period: str, **filters):
+    """Единственная диаграмма сервиса: динамика факта (с накоплением) и линия бюджета."""
+    return figure_for(db, user, analysis.run_fact_budget(db, user, period, **filters))
 
 
 @router.get("/{name}")

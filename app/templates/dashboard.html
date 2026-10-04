@@ -1,14 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Анализ расходов — {{ app_name }}{% endblock %}
 {% block head %}<script src="/assets/plotly.min.js" defer></script>{% endblock %}
+{% from "partials/macros.html" import empty_state %}
 {% block content %}
 <h1>Анализ расходов</h1>
 {% if not bounds.fact_to %}
-<p class="alert warn">Факт ещё не загружен. {% if can(user, Permission.DATA_MANUAL) %}<a href="/web/data">Загрузить данные</a>{% endif %}</p>
-{% endif %}
+{{ empty_state("Данных пока нет", "Загрузите файл с фактическими расходами — и здесь появится диаграмма динамики.",
+               "/web/data" if can(user, Permission.DATA_MANUAL), "Загрузить данные") }}
+{% else %}
 
 <form id="analysis-form" class="card filters" hx-get="/web/dashboard/result" hx-target="#result"
-      hx-indicator="#result-indicator" hx-trigger="submit, change{% if bounds.fact_to %}, load{% endif %}">
+      hx-indicator="#result-indicator" hx-trigger="submit, change, load">
   <div class="filter-group">
     <span class="filter-title">Период</span>
     <div class="chips">
@@ -56,4 +58,5 @@
 </form>
 <p id="result-indicator" class="htmx-indicator muted">Обновляем диаграмму…</p>
 <div id="result"></div>
+{% endif %}
 {% endblock %}

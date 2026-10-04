@@ -1,7 +1,9 @@
-{% from "partials/macros.html" import chart_block %}
+{% from "partials/macros.html" import chart_block, kpi_cards %}
+{{ kpi_cards(kpi) }}
 <section class="card">
   {{ chart_block(chart, "fact-budget") }}
   <p class="muted small">Столбцы — фактические расходы по статьям, линия — бюджет.
+    Нажмите на статью в легенде, чтобы убрать или вернуть её.
     {% if no_budget_by_day %}По дням бюджет не показывается: он задаётся не детальнее месяца.{% endif %}</p>
 </section>
 

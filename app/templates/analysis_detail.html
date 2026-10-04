@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "partials/macros.html" import chart_block %}
+{% from "partials/macros.html" import chart_block, kpi_cards, progress %}
 {% block title %}{{ analysis.title }} — {{ app_name }}{% endblock %}
 {% block head %}<script src="/assets/plotly.min.js" defer></script>{% endblock %}
 {% block content %}
@@ -28,6 +28,7 @@
 {% endif %}
 
 {% if chart %}
+{{ kpi_cards(kpi) }}
 <section class="card">
   {{ chart_block(chart, "fact-budget") }}
   <p class="muted small">Столбцы — фактические расходы по статьям, линия — бюджет.
@@ -49,7 +50,7 @@
     </label>
     <button type="submit">{{ "Сформировать заново" if analysis.ai_text else "Запустить AI-анализ" }}</button>
   </form>
-  <p id="ai-indicator" class="htmx-indicator muted">Модель готовит заключение — это может занять до нескольких минут…</p>
+  {{ progress("ai-indicator", "Модель готовит заключение — обычно 1–2 минуты") }}
   {% endif %}
   {% with error=None %}{% include "partials/ai_output.html" %}{% endwith %}
 </section>

@@ -120,6 +120,27 @@ function drawChart(el) {
   if (!window.Plotly || !el._figure) return;
   const { data, layout } = themedFigure(el._figure);
   Plotly.react(el, data, layout, { responsive: true, displaylogo: false, locale: "ru" });
+  if (!el._legendBound) {
+    el._legendBound = true;
+    el.on("plotly_legendclick", (event) => legendToFilter(event.data[event.curveNumber].name));
+    el.on("plotly_legenddoubleclick", () => false);
+  }
+}
+// Клик по статье в легенде работает как фильтр «Статьи расходов»: убирает или возвращает статью.
+// Возвращает false, если клик обработан (стандартное скрытие ряда Plotly отменяется).
+function legendToFilter(name) {
+  const form = document.getElementById("analysis-form");
+  if (!form) return true;  // сохранённый анализ: обычное поведение легенды
+  const boxes = [...form.querySelectorAll('input[name="categories"]')];
+  const box = boxes.find((item) => item.value === name);
+  if (!box) return true;  // линия бюджета
+  if (boxes.every((item) => !item.checked)) {
+    boxes.forEach((item) => { item.checked = item !== box; });  // были показаны все — убираем одну
+  } else {
+    box.checked = !box.checked;
+  }
+  htmx.trigger(form, "submit");
+  return false;
 }
 function renderCharts(root) {
   root.querySelectorAll(".chart[data-figure]").forEach((el) => {
@@ -130,3 +151,38 @@ function renderCharts(root) {
 }
 document.addEventListener("DOMContentLoaded", () => renderCharts(document));
 document.addEventListener("htmx:afterSettle", (e) => renderCharts(e.target));
+
+// ---------- Сворачиваемое меню ----------
+document.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element) || !e.target.closest("[data-sidebar-toggle]")) return;
+  const root = document.documentElement;
+  root.dataset.sidebar = root.dataset.sidebar === "collapsed" ? "open" : "collapsed";
+  localStorage.setItem("sidebar", root.dataset.sidebar);
+  // после анимации диаграмма занимает освободившуюся ширину
+  setTimeout(() => window.dispatchEvent(new Event("resize")), 220);
+});
+
+// ---------- Таймер долгих операций (AI-анализ) ----------
+const timers = new WeakMap();
+function indicatorOf(element) {
+  const selector = element.getAttribute && element.getAttribute("hx-indicator");
+  const indicator = selector ? document.querySelector(selector) : null;
+  return indicator && indicator.querySelector("[data-elapsed]") ? indicator : null;
+}
+document.addEventListener("htmx:beforeRequest", (e) => {
+  const indicator = indicatorOf(e.detail.elt);
+  if (!indicator) return;
+  const output = indicator.querySelector("[data-elapsed]");
+  const started = Date.now();
+  const tick = () => {
+    const seconds = Math.floor((Date.now() - started) / 1000);
+    output.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+  tick();
+  clearInterval(timers.get(indicator));
+  timers.set(indicator, setInterval(tick, 1000));
+});
+document.addEventListener("htmx:afterRequest", (e) => {
+  const indicator = indicatorOf(e.detail.elt);
+  if (indicator) clearInterval(timers.get(indicator));
+});

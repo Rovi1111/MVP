@@ -41,14 +41,21 @@ code { background: var(--surface-2); border: 1px solid var(--border); padding: 0
 /* ---------- Боковое меню ---------- */
 body.with-sidebar { display: flex; min-height: 100vh; }
 body.with-sidebar main { flex: 1; min-width: 0; margin: 0; max-width: 1320px; }
-.sidebar { width: 244px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border);
+.sidebar { width: 244px; transition: width .2s ease; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border);
   padding: 1.25rem .85rem 1rem; display: flex; flex-direction: column; gap: 1.1rem;
   position: sticky; top: 0; height: 100vh; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: .6rem; padding: 0 .4rem; font-weight: 700;
   font-size: 1.08rem; text-decoration: none; color: var(--text); }
 .brand:hover { color: var(--text); }
-.brand-mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--accent), #8a5cf6); color: #fff; font-size: .95rem; }
+.logo { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+  border: 2px solid var(--border); transition: transform var(--speed), border-color var(--speed); }
+.brand:hover .logo { transform: rotate(-6deg) scale(1.06); border-color: var(--accent); }
+.sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: .4rem; }
+.icon-button { background: transparent; border: 1px solid transparent; color: var(--muted);
+  padding: .3rem; border-radius: var(--radius-sm); display: grid; place-items: center; }
+.icon-button svg { width: 18px; height: 18px; transition: transform var(--speed); }
+.icon-button:hover { background: var(--surface-2); border-color: var(--border); color: var(--text);
+  box-shadow: none; transform: none; }
 .sidebar nav { display: flex; flex-direction: column; gap: .2rem; flex: 1; }
 .sidebar nav a { display: flex; align-items: center; gap: .65rem; text-decoration: none;
   color: var(--muted); padding: .55rem .7rem; border-radius: var(--radius-sm); font-weight: 500;
@@ -66,7 +73,23 @@ body.with-sidebar main { flex: 1; min-width: 0; margin: 0; max-width: 1320px; }
 .theme-toggle:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
   box-shadow: none; }
 .theme-toggle.floating { position: fixed; top: 1rem; right: 1rem; }
+/* Свёрнутое меню: только иконки */
+@media (min-width: 761px) {
+  [data-sidebar="collapsed"] .sidebar { width: 68px; padding-left: .6rem; padding-right: .6rem; }
+  [data-sidebar="collapsed"] .sidebar .label { display: none; }
+  [data-sidebar="collapsed"] .sidebar-head { flex-direction: column; gap: .7rem; }
+  [data-sidebar="collapsed"] .brand { padding: 0; }
+  [data-sidebar="collapsed"] .sidebar nav a { justify-content: center; padding: .6rem 0; }
+  [data-sidebar="collapsed"] .sidebar nav a:hover { transform: none; }
+  [data-sidebar="collapsed"] .icon-button svg { transform: rotate(180deg); }
+  [data-sidebar="collapsed"] .userbox { padding-left: 0; padding-right: 0; align-items: center; }
+  [data-sidebar="collapsed"] .userbox .actions { flex-direction: column; gap: .5rem; margin-top: 0; }
+  [data-sidebar="collapsed"] .theme-toggle { padding: .3rem .45rem; font-size: 0; }
+  [data-sidebar="collapsed"] .theme-toggle::first-letter { font-size: .95rem; }
+  [data-sidebar="collapsed"] .userbox button.link { font-size: .75rem; }
+}
 @media (max-width: 760px) {
+  .icon-button[data-sidebar-toggle] { display: none; }
   body.with-sidebar { flex-direction: column; }
   .sidebar { width: auto; height: auto; position: static; border-right: none;
     border-bottom: 1px solid var(--border); }
@@ -216,3 +239,40 @@ details form { margin-top: .5rem; }
   background: var(--accent); color: var(--accent-text); }
 .segmented input:focus-visible + span, .chip.check:has(input:focus-visible) {
   outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---------- Карточки с итогами ---------- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1rem 1.2rem; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: .15rem;
+  border-left: 4px solid var(--accent); transition: transform var(--speed), box-shadow var(--speed); }
+.kpi:hover { transform: translateY(-2px); }
+.kpi-title { font-size: .75rem; font-weight: 650; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); }
+.kpi strong { font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.kpi.over { border-left-color: var(--danger); } .kpi.over strong, .kpi.over .small { color: var(--danger); }
+.kpi.under { border-left-color: var(--ok); } .kpi.under strong, .kpi.under .small { color: var(--ok); }
+
+/* ---------- Ход долгой операции ---------- */
+.htmx-request.progress, .htmx-request .progress { display: flex; animation: none; }
+.progress { align-items: center; gap: .7rem; margin: .9rem 0; padding: .7rem 1rem;
+  background: var(--accent-soft); border-radius: var(--radius-sm); color: var(--text); }
+.progress [data-elapsed] { margin-left: auto; font-variant-numeric: tabular-nums; }
+.spinner { width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  border: 2.5px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent);
+  animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Оформленный текст AI-заключения ---------- */
+.ai-text { white-space: normal; }
+.ai-text h4 { margin: 1.1rem 0 .4rem; font-size: 1rem; }
+.ai-text h4:first-child { margin-top: 0; }
+.ai-text p { margin: .45rem 0; }
+.ai-text ul, .ai-text ol { margin: .4rem 0; padding-left: 1.4rem; }
+.ai-text li { margin: .2rem 0; }
+
+/* ---------- Пустые разделы ---------- */
+.empty { text-align: center; padding: 3.5rem 1rem; margin: 1rem 0; background: var(--surface);
+  border: 1px dashed var(--border); border-radius: var(--radius); }
+.empty svg { width: 54px; height: 54px; color: var(--accent); opacity: .8; }
+.empty h2 { margin: .8rem 0 .3rem; }
+.empty p { max-width: 460px; margin: 0 auto 1.2rem; }

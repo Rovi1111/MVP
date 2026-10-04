@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import get_settings
 from app.models import User
 from app.permissions import ROLE_LABELS, Permission, Role, has_permission
+from app.services.markdown import render_markdown
 from app.timeutil import to_local
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -38,6 +39,10 @@ LABELS = {
     "removed": "Исчезнувшая",
     "no_change": "Без изменений",
     "dynamics": "Динамика расходов",
+    "step_day": "день",
+    "step_month": "месяц",
+    "step_quarter": "квартал",
+    "step_year": "год",
 }
 
 
@@ -126,6 +131,7 @@ templates.env.filters.update(
     money=format_money,
     pct=format_pct,
     ru_date=format_date,
+    md=render_markdown,
 )
 
 

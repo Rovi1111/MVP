@@ -315,7 +315,8 @@ def test_web_ai_flow(client, fake):
     assert 'hx-trigger="click, load"' not in result.text  # автозапуск выключен по умолчанию
 
     output = client.post("/web/analyses", data=FORM | {"action": "ai"})
-    assert "Заключение." in output.text and "Скопировать" in output.text and len(fake.requests) == 1
+    assert "<p>Заключение.</p>" in output.text and "Скопировать" in output.text
+    assert len(fake.requests) == 1
     saved = client.post("/web/analyses", data=FORM | {"action": "save"})
     assert "Расчёт сохранён" in saved.text and len(fake.requests) == 1
 
